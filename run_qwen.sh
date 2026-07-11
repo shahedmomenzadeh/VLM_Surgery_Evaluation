@@ -52,7 +52,7 @@ else
     DATASET_ROOT="${DATASET_ROOT:-D:/programming/MSc_project/Video pipeline/dataset}"
 fi
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
-MAX_FRAMES="${MAX_FRAMES:-16}"
+MAX_FRAMES="${MAX_FRAMES:-48}"
 
 log "Dataset Root: $DATASET_ROOT"
 log "Output Directory: $OUTPUT_DIR"
@@ -83,7 +83,7 @@ QWEN_PYTHON=$(get_venv_python "$QWEN_VENV")
 log "Installing PyTorch with CUDA 12.6 for Qwen3-VL..."
 uv pip install --python "$QWEN_PYTHON" \
     torch torchvision \
-    --index-url https://download.pytorch.org/whl/cu126
+    --index-url https://download.pytorch.org/whl/cu130
 
 log "Checking and installing Qwen3-VL remaining requirements..."
 uv pip install --python "$QWEN_PYTHON" \
@@ -102,6 +102,7 @@ log "Running Qwen3-VL-2B-Instruct inference (clip + full-video, max_frames=$MAX_
     --model-family qwen3vl \
     --model-id Qwen/Qwen3-VL-2B-Instruct \
     --dataset-root "$DATASET_ROOT" \
-    --data-level both \
+    --data-level full \
     --output-dir "$OUTPUT_DIR" \
-    --max-frames "$MAX_FRAMES"
+    --max-frames "$MAX_FRAMES" \
+    --max-new-tokens 4096

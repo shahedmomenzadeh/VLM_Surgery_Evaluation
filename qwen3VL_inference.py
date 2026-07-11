@@ -216,12 +216,21 @@ def run_qwen3vl_generation(
     primary_device: torch.device,
     log_id: str
 ) -> str | None:
-    """Runs generation with one OOM retry at half frame count."""
+    """Runs generation with progressive frame-count retry on OOM or short-video errors."""
     model_response = None
     
-    for attempt_frames in [max_frames, max(1, max_frames // 2)]:
+    # Build retry schedule: max_frames, max_frames//2, max_frames//4, ..., down to 2
+    retry_frames = []
+    f = max_frames
+    while f >= 2:
+        retry_frames.append(f)
+        f = f // 2
+    if not retry_frames:
+        retry_frames = [2]
+    
+    for attempt_frames in retry_frames:
         if attempt_frames != max_frames:
-            log.warning(f"{log_id} — OOM retry with {attempt_frames} frames (was {max_frames}).")
+            log.warning(f"{log_id} — Retry with {attempt_frames} frames (was {max_frames}).")
             
         try:
             inputs = build_inputs(
@@ -259,6 +268,15 @@ def run_qwen3vl_generation(
             gc.collect()
             torch.cuda.empty_cache()
             # Loop continues to smaller frames count
+        except ValueError as e:
+            if "nframes" in str(e):
+                log.warning(f"{log_id} — Frame count too high for video (frames={attempt_frames}): {e}")
+                gc.collect()
+                torch.cuda.empty_cache()
+                # Loop continues to smaller frames count
+            else:
+                log.error(f"{log_id} — Generation error: {e}\n{traceback.format_exc()}")
+                break
         except Exception as e:
             log.error(f"{log_id} — Generation error: {e}\n{traceback.format_exc()}")
             break
@@ -711,6 +729,9 @@ def run_full_video_evaluation(model, processor, records: list[dict], judge, outp
 
 def run(args, records: dict, judge) -> dict:
     """Main runner for Qwen3-VL inference called by main.py."""
+    # Force max_new_tokens to 4096 to prevent response truncation
+    args.max_new_tokens = 4096
+
     # 0. Skip loading model if judge-only mode is active
     if args.mode == "judge":
         log.info("Mode 'judge' is active. Skipping model initialization for Qwen3-VL.")
@@ -778,7 +799,7 @@ def run(args, records: dict, judge) -> dict:
                 records=clip_records,
                 judge=judge,
                 output_dir=args.output_dir,
-                tag=f"{args.tag}_clip" if args.data_level == "both" else args.tag,
+                tag=f"{args.tag}_clip",
                 args=args,
                 primary_device=primary_device
             )
@@ -795,7 +816,7 @@ def run(args, records: dict, judge) -> dict:
                 records=full_records,
                 judge=judge,
                 output_dir=args.output_dir,
-                tag=f"{args.tag}_full" if args.data_level == "both" else args.tag,
+                tag=f"{args.tag}_full",
                 args=args,
                 primary_device=primary_device
             )

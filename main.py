@@ -61,7 +61,7 @@ def parse_args():
     parser.add_argument("--min-pixels", type=int, default=100352,
                         help="Qwen3-VL min pixels parameter (default: 128*28*28).")
     
-    parser.add_argument("--max-new-tokens", type=int, default=512,
+    parser.add_argument("--max-new-tokens", type=int, default=4096,
                         help="Maximum new tokens to generate.")
     parser.add_argument("--temperature", type=float, default=0.1,
                         help="Model sampling temperature. Use 0.0 for greedy decoding.")
@@ -189,7 +189,7 @@ def main():
         
         # Clip Evaluation
         if args.data_level in ("clip", "both"):
-            suffix = "_clip" if args.data_level == "both" else ""
+            suffix = "_clip"
             resp_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_responses.jsonl")
             score_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_scores.jsonl")
             sum_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_summary.json")
@@ -209,7 +209,7 @@ def main():
                 
         # Full Video Evaluation
         if args.data_level in ("full", "both"):
-            suffix = "_full" if args.data_level == "both" else ""
+            suffix = "_full"
             resp_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_responses.jsonl")
             score_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_scores.jsonl")
             sum_path = os.path.join(args.output_dir, f"{args.tag}{suffix}_summary.json")

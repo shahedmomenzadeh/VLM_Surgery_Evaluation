@@ -143,7 +143,8 @@ uv pip install --python "$QWEN_PYTHON" \
 #     --dataset-root "$DATASET_ROOT" \
 #     --data-level both \
 #     --output-dir "$OUTPUT_DIR" \
-#     --max-frames "$MAX_FRAMES"
+#     --max-frames "$MAX_FRAMES" \
+#     --max-new-tokens 4096
 
 log "Running VLM inference on Qwen/Qwen3-VL-2B-Instruct (both levels)..."
 "$QWEN_PYTHON" main.py \
@@ -153,4 +154,5 @@ log "Running VLM inference on Qwen/Qwen3-VL-2B-Instruct (both levels)..."
     --dataset-root "$DATASET_ROOT" \
     --data-level both \
     --output-dir "$OUTPUT_DIR" \
-    --max-frames "$MAX_FRAMES" 
+    --max-frames "$MAX_FRAMES" \
+    --max-new-tokens 4096
