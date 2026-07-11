@@ -30,9 +30,9 @@ def parse_args():
                         help="Execution mode: 'inference' (only generate responses), 'judge' (only grade pre-generated responses offline), or 'all' (both sequentially).")
     
     # Model parameters
-    parser.add_argument("--model-family", type=str, required=True, choices=["hulumed", "qwen3vl"],
+    parser.add_argument("--model-family", type=str, required=False, choices=["hulumed", "qwen3vl"],
                         help="Model family architecture type.")
-    parser.add_argument("--model-id", type=str, required=True,
+    parser.add_argument("--model-id", type=str, required=False,
                         help="Hugging Face model identifier or path.")
     
     # Dataset configuration
@@ -90,7 +90,13 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true",
                         help="Only load the dataset records and print samples. Does not instantiate models.")
                         
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.dry_run:
+        if not args.model_family:
+            parser.error("the following arguments are required: --model-family")
+        if not args.model_id:
+            parser.error("the following arguments are required: --model-id")
+    return args
 
 
 def print_summary_comparison(model_family: str, summaries: dict):
@@ -163,9 +169,11 @@ def main():
         sys.exit(1)
     
     # 1. Determine tag
-    if args.tag is None:
+    if args.tag is None and args.model_id is not None:
         model_name_clean = args.model_id.split("/")[-1].replace("-", "_").lower()
         args.tag = f"{args.model_family}_{model_name_clean}"
+    elif args.tag is None:
+        args.tag = "dry_run"
         
     log.info(f"Model ID: {args.model_id}")
     log.info(f"Tag Label: {args.tag}")

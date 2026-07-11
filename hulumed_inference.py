@@ -42,6 +42,22 @@ def flush_memory(*objs) -> None:
     log.info(f"VRAM after flush — {vram_stats()}")
 
 
+def probe_total_frames(video_path: str) -> int | None:
+    """
+    Returns the total frame count of a video using decord (fast metadata probe,
+    does not decode frames). Returns None if decord is unavailable or the probe
+    fails — callers should treat None as 'unknown' and keep the requested frame count.
+    """
+    try:
+        import decord
+        # num_threads=1 + lazy read keeps this cheap (metadata only, no full decode)
+        vr = decord.VideoReader(video_path, num_threads=1)
+        return len(vr)
+    except Exception as e:
+        log.warning(f"probe_total_frames: could not read metadata for {video_path}: {e}")
+        return None
+
+
 def get_processed_ids_clip(scores_path: str) -> set[tuple]:
     processed = set()
     if not os.path.exists(scores_path):
@@ -129,19 +145,35 @@ def run_hulumed_generation(
 ) -> str | None:
     """Runs generation with progressive frame-count retry on OOM or short-video errors."""
     model_response = None
-    
-    # Build retry schedule: max_frames, max_frames//2, max_frames//4, ..., down to 2
+
+    # Probe the video's total frame count so we never request more frames than
+    # the clip actually contains. Some HuluMed processor paths raise ValueError
+    # when max_frames exceeds the available frame count (e.g. clips shorter than
+    # fps*duration would yield, or very short segments). Capping upfront avoids
+    # that path and lets the run proceed with the clip's full frame budget.
+    # This cap is per-clip only: callers still pass the default --max-frames for
+    # every new clip, so no global state is mutated.
+    effective_max = max_frames
+    probed_total = probe_total_frames(video_path)
+    if probed_total and probed_total > 0 and max_frames > probed_total:
+        log.info(
+            f"{log_id} — Video has {probed_total} total frames, fewer than requested "
+            f"{max_frames}. Capping max_frames to {probed_total} for this clip only."
+        )
+        effective_max = probed_total
+
+    # Build retry schedule: effective_max, effective_max//2, ..., down to 2
     retry_frames = []
-    f = max_frames
+    f = effective_max
     while f >= 2:
         retry_frames.append(f)
         f = f // 2
     if not retry_frames:
         retry_frames = [2]
-    
+
     for attempt_frames in retry_frames:
-        if attempt_frames != max_frames:
-            log.warning(f"{log_id} — Retry with {attempt_frames} frames (was {max_frames}).")
+        if attempt_frames != effective_max:
+            log.warning(f"{log_id} — Retry with {attempt_frames} frames (was {effective_max}).")
             
         conversation = [
             {

@@ -102,7 +102,7 @@ log "Running Qwen3-VL-2B-Instruct inference (clip + full-video, max_frames=$MAX_
     --model-family qwen3vl \
     --model-id Qwen/Qwen3-VL-2B-Instruct \
     --dataset-root "$DATASET_ROOT" \
-    --data-level full \
+    --data-level both \
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
     --max-new-tokens 4096
