@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv-*/
+.venv/
+venv/
+env/
+
+# Jupyter Notebooks
+*.ipynb
+*.ipynb_checkpoints/
+
+# Results and outputs
+results/
+
+# Dataset files
+dataset/
+
+# HuggingFace model cache
+hf_cache/
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
