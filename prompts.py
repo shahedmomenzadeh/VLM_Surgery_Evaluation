@@ -8,34 +8,39 @@
 # Suffix to append to clip-level multiple-choice questions
 CLIP_INFERENCE_SUFFIX = (
     "\n\nInstructions: Think through the question step-by-step based on what "
-    "you observe in the video, then conclude with your final answer on a new "
-    "line in the format:  ANSWER: <letter>"
+    "you observe in the video. Be concise and do not repeat yourself. "
+    "Conclude with your final answer on a new line in the format: ANSWER: <letter>\n"
+    "Stop generating immediately after providing the answer."
 )
 
 # Suffix to append to clip-level multiple-choice questions for direct answering (no reasoning)
 CLIP_DIRECT_INFERENCE_SUFFIX = (
-    "\n\nInstructions: Answer the question by outputting only the letter of the correct option (e.g., A, B, C, or D) on a new line in the format: ANSWER: <letter> without any reasoning or extra text."
+    "\n\nInstructions: Answer the question by outputting only the letter of the correct option "
+    "(e.g., A, B, C, or D) on a new line in the format: ANSWER: <letter>\n"
+    "Provide no reasoning or extra text, and stop generating immediately."
 )
 
 # Suffix to append to full-video narration questions
 NARRATION_INFERENCE_SUFFIX = (
-    "\n\nDescribe the procedure as a single, flowing chronological narration of "
-    "what you observe happening, step by step. Do not include raw timestamps — "
-    "describe the sequence of events in your own words."
+    "\n\nInstructions: Describe the procedure as a single, flowing chronological narration of "
+    "what you observe happening, step by step. Be concise, precise, and avoid repeating the same actions or getting stuck in loops. "
+    "Do not include raw timestamps. Only describe the events you clearly see, and stop generating once the video concludes."
 )
 
 # Suffix to append for direct sequence ordering (no reasoning)
 ORDERING_DIRECT_INFERENCE_SUFFIX = (
     "\n\nInstructions: Output only the correct sequence of letters separated by commas "
-    "(e.g., B, D, A, C) without any reasoning or extra text."
+    "(e.g., B, D, A, C).\n"
+    "Provide no reasoning or extra text, and stop generating immediately."
 )
 
 # Suffix to append for Visual Chain-of-Thought (CoT) sequence ordering (reasoning first)
 ORDERING_COT_INFERENCE_SUFFIX = (
     "\n\nInstructions: Analyze the video and think through the chronological flow "
     "step-by-step. First, describe the sequence of surgical steps you observe in the "
-    "video. Conclude with your final answer on a new line in the format: "
-    "SEQUENCE: <letters separated by commas> (e.g., SEQUENCE: B, D, A, C)."
+    "video concisely without repeating yourself. Conclude with your final answer on a new line in the format: "
+    "SEQUENCE: <letters separated by commas> (e.g., SEQUENCE: B, D, A, C).\n"
+    "Stop generating immediately after providing the sequence."
 )
 
 

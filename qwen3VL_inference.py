@@ -250,7 +250,12 @@ def run_qwen3vl_generation(
                     max_new_tokens=max_new_tokens,
                     do_sample=(temperature > 0.0),
                     temperature=temperature if temperature > 0.0 else None,
+                    top_p=0.8 if temperature > 0.0 else None,
+                    top_k=20 if temperature > 0.0 else None,
+                    min_p=0.0 if temperature > 0.0 else None,
+                    repetition_penalty=1.05,
                     use_cache=True,
+                    eos_token_id=[151645, 151643],
                     pad_token_id=processor.tokenizer.eos_token_id
                 )
                 
