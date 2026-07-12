@@ -14,7 +14,9 @@ from prompts import (
     NARRATION_JUDGE_SYSTEM_PROMPT,
     NARRATION_JUDGE_USER_TEMPLATE,
     ORDERING_JUDGE_SYSTEM_PROMPT,
-    ORDERING_JUDGE_USER_TEMPLATE
+    ORDERING_JUDGE_USER_TEMPLATE,
+    CLIP_EXTRACTOR_SYSTEM_PROMPT,
+    CLIP_EXTRACTOR_USER_TEMPLATE
 )
 
 log = logging.getLogger("llm_judge")
@@ -115,16 +117,53 @@ class LLMJudge:
             self.client = None
             log.warning("No API key provided for LLMJudge. LLM-based scoring will fall back to deterministic scoring.")
 
+    def _extract_clip_letter_llm(self, model_response: str) -> str:
+        """Fallback to LLM to extract answer letter for structured misalignments."""
+        if not self.client:
+            return ""
+            
+        user_msg = CLIP_EXTRACTOR_USER_TEMPLATE.format(model_response=model_response)
+        
+        for attempt in range(1, self.retries + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=64,
+                    messages=[
+                        {"role": "system", "content": CLIP_EXTRACTOR_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_msg}
+                    ]
+                )
+                raw = response.choices[0].message.content.strip()
+                raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+                result = json.loads(raw)
+                ans = result.get("extracted_answer", "").strip().upper()
+                if ans in ["A", "B", "C", "D"]:
+                    return ans
+                return ""
+            except Exception as e:
+                log.warning(f"Clip extractor API attempt {attempt}/{self.retries} failed: {e}")
+            if attempt < self.retries:
+                time.sleep(1)
+        return ""
+
     def score_clip_deterministic(self, model_response: str, correct_answer: str) -> dict:
-        """Deterministic exact letter match scoring (0 or 1)."""
+        """Deterministic exact letter match scoring (0 or 1). Falls back to LLM extractor."""
         extracted = extract_answer_letter(model_response)
+        method = "deterministic"
+        
+        if not extracted and self.client:
+            extracted = self._extract_clip_letter_llm(model_response)
+            if extracted:
+                method = "llm_extractor"
+                
         is_correct = (extracted == correct_answer.upper())
         return {
             "score": 1 if is_correct else 0,
             "max_score": 1,
             "extracted_answer": extracted or "NONE",
             "correct": is_correct,
-            "method": "deterministic",
+            "method": method,
             "justification": ""
         }
 

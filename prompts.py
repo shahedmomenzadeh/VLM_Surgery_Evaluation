@@ -150,11 +150,12 @@ ORDERING_JUDGE_SYSTEM_PROMPT = """You are extracting a Vision-Language Model's p
 
 The model was shown a list of lettered surgical step descriptions (in shuffled order) and asked to output the letters in the chronological order the steps actually occur in the video.
 
-Your job: read the model's response (which may include reasoning, hedging, or extra commentary) and extract the FINAL sequence of letters it intends as its answer, in order.
+Your job: read the model's response and extract the FINAL sequence of letters it intended as its structured answer.
 
 Rules:
 - Output every distinct letter from the valid option set below exactly once, in the order the model intends.
-- If the model never fully commits, infer its intended final ordering from its latest/most confident statement; if truly impossible, return an empty list.
+- Fix any structured formatting misalignments (e.g., missing spaces, incorrect delimiters like A,B,C instead of A, B, C).
+- CRITICAL: Do NOT attempt to deduce or extract the answer from the model's reasoning trace. ONLY extract the final committed answer sequence. If the model did not provide a final answer statement, return an empty list.
 - Do not include letters outside the valid option set.
 - Do not add letters the model never mentioned.
 
@@ -173,3 +174,25 @@ Model response:
 {model_response}
 
 Extract the predicted chronological ordering."""
+
+# =============================================================================
+# CLIP-LEVEL DETERMINISTIC FALLBACK EXTRACTOR
+# =============================================================================
+
+CLIP_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final answer letter from a model's response to a multiple-choice question.
+The model was instructed to output 'ANSWER: <letter>'. If it used a slightly different format (e.g., 'ANSWER:A', 'Answer is A', 'A.', 'Answer - A'), extract the letter.
+
+Rules:
+- Fix structured formatting misalignments (e.g., missing spaces, unusual delimiters).
+- CRITICAL: Do NOT attempt to deduce the answer by reading the reasoning trace. ONLY extract the letter if it is explicitly provided as a final answer statement.
+- If the model did not provide a final answer statement, return 'NONE'.
+
+Respond ONLY with a JSON object — no extra text, no markdown fences:
+{
+  "extracted_answer": "<letter A-D, or 'NONE'>"
+}"""
+
+CLIP_EXTRACTOR_USER_TEMPLATE = """Model response:
+{model_response}
+
+Extract the final answer letter."""
