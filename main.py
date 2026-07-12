@@ -164,7 +164,7 @@ def main():
     args = parse_args()
     
     # Validate arguments for root dataset directory
-    if args.mode != "judge" and not args.dataset_root:
+    if args.mode != "judge" and not args.dry_run and not args.dataset_root:
         log.error("Error: --dataset-root is required in 'inference' or 'all' modes.")
         sys.exit(1)
     
