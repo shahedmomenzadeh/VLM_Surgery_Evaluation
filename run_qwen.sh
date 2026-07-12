@@ -96,13 +96,27 @@ uv pip install --python "$QWEN_PYTHON" \
     "imageio"
 
 # ── 4. RUN QWEN3-VL INFERENCE ──────────────────────────────────────────────
-log "Running Qwen3-VL-2B-Instruct inference (clip + full-video, max_frames=$MAX_FRAMES)..."
+
+# --- INSTRUCT MODEL (Commented out) ---
+# log "Running Qwen3-VL-2B-Instruct inference (clip + full-video, max_frames=$MAX_FRAMES)..."
+# "$QWEN_PYTHON" main.py \
+#     --mode inference \
+#     --model-family qwen3vl \
+#     --model-id Qwen/Qwen3-VL-2B-Instruct \
+#     --dataset-root "$DATASET_ROOT" \
+#     --data-level both \
+#     --output-dir "$OUTPUT_DIR" \
+#     --max-frames "$MAX_FRAMES" \
+#     --max-new-tokens 4096
+
+# --- THINKING MODEL ---
+log "Running Qwen3-VL-2B-Thinking inference (clip + full-video, max_frames=$MAX_FRAMES)..."
 "$QWEN_PYTHON" main.py \
     --mode inference \
     --model-family qwen3vl \
-    --model-id Qwen/Qwen3-VL-2B-Instruct \
+    --model-id Qwen/Qwen3-VL-2B-Thinking \
     --dataset-root "$DATASET_ROOT" \
     --data-level both \
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
-    --max-new-tokens 4096
+    --max-new-tokens 8192

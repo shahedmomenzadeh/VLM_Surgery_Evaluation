@@ -3,6 +3,7 @@
 
 import os
 import gc
+import re
 import json
 import logging
 import time
@@ -297,6 +298,16 @@ def run_qwen3vl_generation(
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=False
             )[0].strip()
+            
+            # 1. Handle models that output the entire <think>...</think> block themselves
+            model_response = re.sub(r"<think>.*?(?:</think>|$)", "", model_response, flags=re.DOTALL)
+            
+            # 2. Handle models where the chat template forces generation to start inside a <think> block
+            # (In this case, the output won't have <think>, but will have </think>)
+            if "</think>" in model_response:
+                model_response = model_response.split("</think>")[-1]
+                
+            model_response = model_response.strip()
             
             del inputs, output_ids, generated_ids
             break # Success

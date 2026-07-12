@@ -44,3 +44,6 @@ desktop.ini
 
 # Logs
 *.log
+
+#test codes
+test_endpoint.py
