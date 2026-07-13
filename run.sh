@@ -135,24 +135,45 @@ uv pip install --python "$QWEN_PYTHON" \
     "imageio"
 
 # ── 5. RUN EVALUATION INFERENCE ───────────────────────────────────────────
-# log "Running VLM inference on ZJU-AI4H/Hulu-Med-4B (both levels)..."
-# "$HULUMED_PYTHON" main.py \
-#     --mode inference \
-#     --model-family hulumed \
-#     --model-id ZJU-AI4H/Hulu-Med-4B \
-#     --dataset-root "$DATASET_ROOT" \
-#     --data-level both \
-#     --output-dir "$OUTPUT_DIR" \
-#     --max-frames "$MAX_FRAMES" \
-#     --max-new-tokens 4096
+# # ── HuluMed Evaluation ───────────────────────────────────────────────────
+HULUMED_MODELS=(
+    "ZJU-AI4H/Hulu-Med-4B"
+    "ZJU-AI4H/Hulu-Med-7B"
+)
+for model in "${HULUMED_MODELS[@]}"; do
+    log "Running HuluMed inference on $model (both levels, temp=0.6)..."
+    "$HULUMED_PYTHON" main.py \
+        --mode inference \
+        --model-family hulumed \
+        --model-id "$model" \
+        --dataset-root "$DATASET_ROOT" \
+        --data-level both \
+        --output-dir "$OUTPUT_DIR" \
+        --max-frames "$MAX_FRAMES" \
+        --max-new-tokens 4096 \
+        --temperature 0.6
+done
 
-log "Running VLM inference on Qwen/Qwen3-VL-2B-Instruct (both levels)..."
-"$QWEN_PYTHON" main.py \
-    --mode inference \
-    --model-family qwen3vl \
-    --model-id Qwen/Qwen3-VL-2B-Instruct \
-    --dataset-root "$DATASET_ROOT" \
-    --data-level both \
-    --output-dir "$OUTPUT_DIR" \
-    --max-frames "$MAX_FRAMES" \
-    --max-new-tokens 4096
+# ── Qwen3-VL Evaluation ──────────────────────────────────────────────────
+QWEN_MODELS=(
+    "Qwen/Qwen3-VL-2B-Thinking:8192"
+    "Qwen/Qwen3-VL-2B-Instruct:4096"
+    "Qwen/Qwen3-VL-4B-Thinking:8192"
+    "Qwen/Qwen3-VL-4B-Instruct:4096"
+    "Qwen/Qwen3-VL-8B-Thinking:8192"
+    "Qwen/Qwen3-VL-8B-Instruct:4096"
+)
+for item in "${QWEN_MODELS[@]}"; do
+    model="${item%%:*}"
+    tokens="${item##*:}"
+    log "Running Qwen3-VL inference on $model (both levels, max-tokens=$tokens)..."
+    "$QWEN_PYTHON" main.py \
+        --mode inference \
+        --model-family qwen3vl \
+        --model-id "$model" \
+        --dataset-root "$DATASET_ROOT" \
+        --data-level both \
+        --output-dir "$OUTPUT_DIR" \
+        --max-frames "$MAX_FRAMES" \
+        --max-new-tokens "$tokens"
+done
