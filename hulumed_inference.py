@@ -185,7 +185,7 @@ def run_hulumed_generation(
                             "video_path": video_path,
                             "fps": fps,
                             "max_frames": attempt_frames,
-                            "size": frame_size
+                            "size": min(frame_size) if isinstance(frame_size, list) else frame_size
                         }
                     },
                     {

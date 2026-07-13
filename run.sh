@@ -161,7 +161,8 @@ log "Running HuluMed inference on ZJU-AI4H/Hulu-Med-7B (both levels, temp=0.6)..
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
     --max-new-tokens 4096 \
-    --temperature 0.6
+    --temperature 0.6 \
+    --frame-size 224
 
 # ── Qwen3-VL Evaluation (Largest First) ──────────────────────────────────
 QWEN_LARGEST_MODELS=(
@@ -180,7 +181,8 @@ for item in "${QWEN_LARGEST_MODELS[@]}"; do
         --data-level both \
         --output-dir "$OUTPUT_DIR" \
         --max-frames "$MAX_FRAMES" \
-        --max-new-tokens "$tokens"
+        --max-new-tokens "$tokens" \
+        --max-pixels 66976
 done
 
 # ── HuluMed Evaluation (Remaining) ──────────────────────────────────────
