@@ -51,8 +51,8 @@ def parse_args():
     
     parser.add_argument("--max-frames", type=int, default=8,
                         help="Maximum frames to sample from each video.")
-    parser.add_argument("--frame-size", type=int, default=224,
-                        help="HuluMed video frame height/width resizing parameter.")
+    parser.add_argument("--frame-size", type=str, default="480,640",
+                        help="HuluMed video frame resizing parameter. Can be a single int or 'height,width'.")
     parser.add_argument("--fps", type=float, default=1.0,
                         help="HuluMed video sampling frame rate.")
     
@@ -91,6 +91,26 @@ def parse_args():
                         help="Only load the dataset records and print samples. Does not instantiate models.")
                         
     args = parser.parse_args()
+    
+    # Parse frame-size if provided
+    if args.frame_size:
+        size_str = args.frame_size.strip()
+        if "," in size_str:
+            try:
+                args.frame_size = [int(x.strip()) for x in size_str.split(",")]
+            except ValueError:
+                parser.error(f"Invalid format for --frame-size: {args.frame_size}. Must be integer or 'height,width'.")
+        elif "x" in size_str:
+            try:
+                args.frame_size = [int(x.strip()) for x in size_str.split("x")]
+            except ValueError:
+                parser.error(f"Invalid format for --frame-size: {args.frame_size}. Must be integer or 'height,width'.")
+        else:
+            try:
+                args.frame_size = int(size_str)
+            except ValueError:
+                parser.error(f"Invalid format for --frame-size: {args.frame_size}. Must be integer or 'height,width'.")
+                
     if not args.dry_run:
         if not args.model_family:
             parser.error("the following arguments are required: --model-family")

@@ -138,7 +138,7 @@ def run_hulumed_generation(
     question_text: str,
     fps: float,
     max_frames: int,
-    frame_size: int,
+    frame_size: int | list[int],
     max_new_tokens: int,
     temperature: float,
     log_id: str
