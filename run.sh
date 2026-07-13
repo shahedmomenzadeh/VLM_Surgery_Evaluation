@@ -55,6 +55,21 @@ fi
 # Save models locally inside the working directory under 'hf_cache'
 export HF_HOME="$SCRIPT_DIR/hf_cache"
 
+# ── DOWNLOAD TEST DATASET ──────────────────────────────────────────────────
+log "Installing gdown for Google Drive downloads..."
+pip install gdown
+
+if [ ! -d "$SCRIPT_DIR/dataset/Test" ]; then
+    log "Downloading Test split from Google Drive..."
+    gdown 1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw --output "$SCRIPT_DIR/Test.zip"
+    log "Extracting Test.zip into dataset directory..."
+    unzip -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
+    rm -f "$SCRIPT_DIR/Test.zip"
+    log "Test dataset ready."
+else
+    log "Test dataset already exists, skipping download."
+fi
+
 # Default dataset path. Overridable via env var: DATASET_ROOT="path" ./run.sh
 # Automatically detects if there is a local 'dataset' folder in the script directory, otherwise falls back to D:/
 if [ -d "$SCRIPT_DIR/dataset" ]; then
