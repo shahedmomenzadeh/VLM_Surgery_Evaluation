@@ -219,3 +219,15 @@ for item in "${QWEN_REMAINING_MODELS[@]}"; do
         --max-frames "$MAX_FRAMES" \
         --max-new-tokens "$tokens"
 done
+
+# ── Lingshu-7B Evaluation (Qwen2.5-VL) ──────────────────────────────────
+log "Running Lingshu-7B inference on lingshu-medical-mllm/Lingshu-7B (both levels)..."
+"$QWEN_PYTHON" main.py \
+    --mode inference \
+    --model-family lingshu \
+    --model-id "lingshu-medical-mllm/Lingshu-7B" \
+    --dataset-root "$DATASET_ROOT" \
+    --data-level both \
+    --output-dir "$OUTPUT_DIR" \
+    --max-frames "$MAX_FRAMES" \
+    --max-new-tokens 4096

@@ -30,7 +30,7 @@ def parse_args():
                         help="Execution mode: 'inference' (only generate responses), 'judge' (only grade pre-generated responses offline), or 'all' (both sequentially).")
     
     # Model parameters
-    parser.add_argument("--model-family", type=str, required=False, choices=["hulumed", "qwen3vl"],
+    parser.add_argument("--model-family", type=str, required=False, choices=["hulumed", "qwen3vl", "lingshu", "qwen2_5_vl"],
                         help="Model family architecture type.")
     parser.add_argument("--model-id", type=str, required=False,
                         help="Hugging Face model identifier or path.")
@@ -304,6 +304,9 @@ def main():
     elif args.model_family == "qwen3vl":
         import qwen3VL_inference
         summaries = qwen3VL_inference.run(args, records, judge)
+    elif args.model_family in ("lingshu", "qwen2_5_vl"):
+        import lingshu_inference
+        summaries = lingshu_inference.run(args, records, judge)
         
     # 7. Print summary metrics (only in 'all' mode where judging was executed immediately)
     if args.mode == "all":

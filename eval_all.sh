@@ -92,6 +92,10 @@ for tag in "${!tags[@]}"; do
         # Extract everything after qwen3vl_
         clean_name="${tag#qwen3vl_}"
         model_id="Qwen/$clean_name"
+    elif [[ "$tag" == lingshu_* ]]; then
+        model_family="lingshu"
+        clean_name="${tag#lingshu_}"
+        model_id="lingshu-medical-mllm/Lingshu-7B"
     else
         log "Warning: Unknown model family prefix for tag '$tag'. Skipping."
         continue
