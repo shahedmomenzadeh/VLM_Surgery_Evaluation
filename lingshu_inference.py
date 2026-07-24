@@ -195,7 +195,6 @@ def build_inputs(
                     "min_pixels": min(min_pixels, max_pixels),
                     "max_pixels": max_pixels,
                     "nframes": max_frames,
-                    "fps": fps,
                 },
                 {
                     "type": "text",
@@ -224,8 +223,6 @@ def build_inputs(
     }
     if video_kwargs:
         processor_kwargs.update(video_kwargs)
-    if "fps" not in processor_kwargs:
-        processor_kwargs["fps"] = fps
 
     inputs = processor(**processor_kwargs)
     inputs = move_inputs_to_device(inputs, primary_device)

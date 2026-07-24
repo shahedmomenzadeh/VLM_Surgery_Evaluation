@@ -25,6 +25,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ── 2. CONFIGURATION OVERRIDES ─────────────────────────────────────────────
 export HF_HOME="${HF_HOME:-$SCRIPT_DIR/hf_cache}"
 
+# ── DOWNLOAD TEST DATASET ──────────────────────────────────────────────────
+if ! command -v gdown &>/dev/null; then
+    log "Installing gdown for dataset download..."
+    pip install gdown || true
+fi
+
+if [ ! -d "$SCRIPT_DIR/dataset/Test" ]; then
+    log "Downloading Test split from Google Drive..."
+    gdown 1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw --output "$SCRIPT_DIR/Test.zip"
+    log "Extracting Test.zip into dataset directory..."
+    unzip -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
+    rm -f "$SCRIPT_DIR/Test.zip"
+    log "Test dataset ready."
+else
+    log "Test dataset already exists, skipping download."
+fi
 
 if [ -d "$SCRIPT_DIR/dataset" ]; then
     DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/dataset}"
