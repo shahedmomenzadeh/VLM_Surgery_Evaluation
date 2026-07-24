@@ -25,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ── 2. CONFIGURATION OVERRIDES ─────────────────────────────────────────────
 export HF_HOME="${HF_HOME:-$SCRIPT_DIR/hf_cache}"
 
+
 if [ -d "$SCRIPT_DIR/dataset" ]; then
     DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/dataset}"
 else
