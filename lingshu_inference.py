@@ -222,6 +222,11 @@ def build_inputs(
         "return_tensors": "pt",
     }
     if video_kwargs:
+        # process_vision_info may return list-wrapped scalars (e.g. fps: [8.0])
+        # but the processor expects plain float/int values — unwrap them.
+        for k, v in video_kwargs.items():
+            if isinstance(v, list) and len(v) == 1:
+                video_kwargs[k] = v[0]
         processor_kwargs.update(video_kwargs)
 
     inputs = processor(**processor_kwargs)
