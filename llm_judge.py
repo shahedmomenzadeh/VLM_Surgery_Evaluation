@@ -128,7 +128,8 @@ class LLMJudge:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    max_tokens=64,
+                    max_tokens=1024,
+                    response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": CLIP_EXTRACTOR_SYSTEM_PROMPT},
                         {"role": "user", "content": user_msg}
@@ -194,7 +195,8 @@ class LLMJudge:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    max_tokens=256,
+                    max_tokens=2048,
+                    response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": CLIP_JUDGE_SYSTEM_PROMPT},
                         {"role": "user", "content": user_msg}
@@ -250,7 +252,8 @@ class LLMJudge:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=8192,
+                    response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": NARRATION_JUDGE_SYSTEM_PROMPT},
                         {"role": "user", "content": user_msg}
@@ -314,7 +317,8 @@ class LLMJudge:
                 try:
                     response = self.client.chat.completions.create(
                         model=self.model,
-                        max_tokens=4096,
+                        max_tokens=8192,
+                        response_format={"type": "json_object"},
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_msg}
