@@ -43,6 +43,24 @@ def extract_answer_letter(text: str) -> str:
     return letters[-1] if letters else ""
 
 
+def truncate_model_response(model_response: str, max_tokens: int = 2048) -> str:
+    """
+    Truncates a model response if it exceeds ~max_tokens (approx 4 chars per token).
+    Prevents prompt context overflow when evaluating hallucinatory/looping VLM outputs.
+    """
+    if not model_response:
+        return ""
+    max_chars = max_tokens * 4
+    if len(model_response) > max_chars:
+        truncated = model_response[:max_chars]
+        answer_suffix_match = re.search(r"(?:ANSWER|SEQUENCE)\s*:.*$", model_response, re.IGNORECASE)
+        suffix = f"\n\n[TRUNCATED: Response exceeded {max_tokens} tokens]"
+        if answer_suffix_match and answer_suffix_match.group(0) not in truncated:
+            suffix += f"\n{answer_suffix_match.group(0)}"
+        return truncated + suffix
+    return model_response
+
+
 def parse_letter_sequence(text: str, valid_letters: set[str]) -> list[str]:
     """
     Programmatic extraction of a full ordering of `valid_letters` from free text.
@@ -122,6 +140,7 @@ class LLMJudge:
         if not self.client:
             return ""
             
+        model_response = truncate_model_response(model_response, max_tokens=2048)
         user_msg = CLIP_EXTRACTOR_USER_TEMPLATE.format(model_response=model_response)
         
         for attempt in range(1, self.retries + 1):
@@ -184,6 +203,7 @@ class LLMJudge:
             result["score"] = result["score"] * 3  # Scale 0/1 to 0/3
             return result
 
+        model_response = truncate_model_response(model_response, max_tokens=2048)
         user_msg = CLIP_JUDGE_USER_TEMPLATE.format(
             question_text=question_text,
             correct_answer=correct_answer,
@@ -243,6 +263,7 @@ class LLMJudge:
                 "method": "llm_judge_fallback"
             }
 
+        model_response = truncate_model_response(model_response, max_tokens=2048)
         user_msg = NARRATION_JUDGE_USER_TEMPLATE.format(
             reference_narration=reference_narration,
             model_response=model_response
@@ -304,12 +325,13 @@ class LLMJudge:
         if not predicted_sequence and self.client:
             # 2. LLM judge fallback
             method = "llm_judge"
+            truncated_response = truncate_model_response(model_response, max_tokens=2048)
             system_prompt = ORDERING_JUDGE_SYSTEM_PROMPT.format(
                 valid_letters=", ".join(sorted(valid_letters))
             )
             user_msg = ORDERING_JUDGE_USER_TEMPLATE.format(
                 question_text=question_text,
-                model_response=model_response
+                model_response=truncated_response
             )
 
             llm_sequence = None

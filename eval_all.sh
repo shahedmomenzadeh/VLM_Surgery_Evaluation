@@ -12,9 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 1. CONFIGURATION OVERRIDES (from eval_qwen.sh settings) ────────────────
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
-JUDGE_BASE_URL="${JUDGE_BASE_URL:-http://0.0.0.0:8000/v1}"
-JUDGE_MODEL="${JUDGE_MODEL:-auto}"
-OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-123}"
+JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://api.gapgpt.app/v1}"
+JUDGE_MODEL="${JUDGE_MODEL:-deepseek-v4-flash}"
+OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 
 export OPENROUTER_API_KEY
 
@@ -96,6 +96,10 @@ for tag in "${!tags[@]}"; do
         model_family="lingshu"
         clean_name="${tag#lingshu_}"
         model_id="lingshu-medical-mllm/Lingshu-7B"
+    elif [[ "$tag" == mage_vl_* ]]; then
+        model_family="mage_vl"
+        clean_name="${tag#mage_vl_}"
+        model_id="microsoft/Mage-VL"
     else
         log "Warning: Unknown model family prefix for tag '$tag'. Skipping."
         continue

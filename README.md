@@ -12,6 +12,8 @@ This project evaluates how well VLMs understand cataract surgery videos by testi
 Currently supported model families:
 - [HuluMed](https://huggingface.co/ZJU-AI4H/Hulu-Med-4B) (ZJU-AI4H)
 - [Qwen3-VL](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) (Alibaba)
+- [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B) (Qwen2.5-VL based medical MLLM)
+- [Mage-VL](https://huggingface.co/microsoft/Mage-VL) (Microsoft, codec-native video MLLM)
 
 ## VLM Response Types
 
@@ -76,6 +78,10 @@ Each narration is scored by an LLM judge across five dimensions (all 0-5):
 
 Sequence extraction uses regex-based parsing first, with LLM-judge fallback for ambiguous responses.
 
+### Judge Response Truncation
+
+Hallucinatory or looping VLM outputs can exceed the judge's context window. Before submission, judge requests truncate model responses to ~2048 tokens (approx. 4 chars/token), appending a `[TRUNCATED]` marker and preserving any trailing `ANSWER:` / `SEQUENCE:` suffix if it was cut off.
+
 ## Project Structure
 
 ```
@@ -86,7 +92,10 @@ Sequence extraction uses regex-based parsing first, with LLM-judge fallback for 
 ├── llm_judge.py            # LLM judge scoring and metric computation
 ├── hulumed_inference.py    # HuluMed model inference pipeline
 ├── qwen3VL_inference.py    # Qwen3-VL model inference pipeline
+├── lingshu_inference.py    # Lingshu-7B / Qwen2.5-VL inference pipeline
+├── mage_vl_inference.py    # Mage-VL inference pipeline (frames & codec backends)
 ├── run.sh                  # Environment setup and execution script
+├── eval_all.sh             # Automated offline judge runner over all response files
 └── results/                # Generated responses, scores, and summaries
 ```
 
@@ -121,10 +130,12 @@ python main.py \
 
 | Argument | Description |
 |----------|-------------|
-| `--model-family` | `hulumed` or `qwen3vl` |
+| `--model-family` | `hulumed`, `qwen3vl`, `lingshu`, `qwen2_5_vl`, or `mage_vl` |
 | `--data-level` | `clip`, `full`, or `both` |
 | `--max-frames` | Number of frames to sample per video |
 | `--load-in-4bit` | Use 4-bit NF4 quantization (default: enabled) |
+| `--mage-video-backend` | Mage-VL video input: `frames` (uniform sampling, default) or `codec` |
+| `--mage-codec-engine` | Mage-VL codec engine when using `codec` backend: `traditional` (HEVC) or `neural` (DCVC) |
 | `--judge-model` | LLM judge model identifier (default: `openai/gpt-oss-120b:free` via OpenRouter) |
 
 ### Offline Judging
@@ -137,6 +148,14 @@ python main.py \
     --data-level both \
     --output-dir ./results
 ```
+
+To grade every `*_responses.jsonl` file found in the output directory in one shot (mapping tag prefixes to model families automatically), run:
+
+```bash
+./eval_all.sh
+```
+
+Set `JUDGE_BASE_URL` and `JUDGE_MODEL` in `eval_all.sh` (or as environment variables) to point the judge at your preferred OpenAI-compatible endpoint.
 
 ## Output Format
 
@@ -153,4 +172,4 @@ The pipeline produces three output files per evaluation run:
 - [uv](https://github.com/astral-sh/uv) package manager (for `run.sh`)
 - OpenRouter API key (for LLM judge, set via `OPENROUTER_API_KEY` env var)
 
-Model-specific dependencies are managed via separate virtual environments (`.venv-hulumed` and `.venv-qwen3vl`). Run `./run.sh` to automatically set up both environments.
+Model-specific dependencies are managed via separate virtual environments (`.venv-hulumed`, `.venv-qwen3vl`, and `.venv-magevl`). Run `./run.sh` to automatically set up all environments, including the CUDA 12.6 PyTorch trio and `mamba-ssm`/`causal-conv1d` build dependencies required by Mage-VL.

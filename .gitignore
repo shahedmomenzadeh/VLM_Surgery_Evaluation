@@ -50,3 +50,4 @@ test_endpoint.py
 run_temp.sh
 test_lingshu_kaggle.sh
 swap_splits.py
+mage-vl-test.sh

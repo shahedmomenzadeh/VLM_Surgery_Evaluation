@@ -149,7 +149,45 @@ uv pip install --python "$QWEN_PYTHON" \
     "tqdm" \
     "imageio"
 
-# ── 5. RUN EVALUATION INFERENCE ───────────────────────────────────────────
+# ── 5. MAGE-VL ENVIRONMENT SETTINGS ────────────────────────────────────────
+MAGEVL_VENV="$SCRIPT_DIR/.venv-magevl"
+if [ ! -d "$MAGEVL_VENV" ]; then
+    log "Creating Mage-VL virtual environment (Python 3.12)..."
+    uv venv "$MAGEVL_VENV" --python 3.12
+fi
+
+MAGEVL_PYTHON=$(get_venv_python "$MAGEVL_VENV")
+
+log "[Step/1] Installing matched PyTorch/torchvision/torchaudio trio for CUDA 12.6..."
+uv pip install --python "$MAGEVL_PYTHON" \
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu126
+
+log "[Step/2] Installing numpy>=2.0,<2.4..."
+uv pip install --python "$MAGEVL_PYTHON" "numpy>=2.0,<2.4"
+
+log "[Step/3] Installing build tools needed by mamba-ssm/causal-conv1d..."
+uv pip install --python "$MAGEVL_PYTHON" packaging ninja wheel setuptools
+
+log "[Step/4] Installing causal-conv1d (--no-build-isolation)..."
+uv pip install --python "$MAGEVL_PYTHON" --no-build-isolation "causal-conv1d>=1.4.0"
+
+log "[Step/5] Installing mamba-ssm (--no-build-isolation)..."
+uv pip install --python "$MAGEVL_PYTHON" --no-build-isolation mamba-ssm
+
+log "[Step/6] Installing remaining Mage-VL dependencies..."
+uv pip install --python "$MAGEVL_PYTHON" \
+    "transformers>=5.7" \
+    "accelerate" \
+    "bitsandbytes>=0.43.0" \
+    "pillow" \
+    "opencv-python" \
+    "codec-video-prep" \
+    "tqdm" \
+    "openai" \
+    "imageio"
+
+# ── 6. RUN EVALUATION INFERENCE ───────────────────────────────────────────
 # ── HuluMed Evaluation (Largest First) ──────────────────────────────────
 log "Running HuluMed inference on ZJU-AI4H/Hulu-Med-7B (both levels, temp=0.6)..."
 "$HULUMED_PYTHON" main.py \
@@ -231,3 +269,16 @@ log "Running Lingshu-7B inference on lingshu-medical-mllm/Lingshu-7B (both level
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
     --max-new-tokens 4096
+
+# ── Mage-VL Evaluation (microsoft/Mage-VL, codec-native 4B) ─────────────
+log "Running Mage-VL inference on microsoft/Mage-VL (both levels, frame-sampling backend)..."
+"$MAGEVL_PYTHON" main.py \
+    --mode inference \
+    --model-family mage_vl \
+    --model-id "microsoft/Mage-VL" \
+    --dataset-root "$DATASET_ROOT" \
+    --data-level both \
+    --output-dir "$OUTPUT_DIR" \
+    --max-frames "$MAX_FRAMES" \
+    --max-new-tokens 4096 \
+    --mage-video-backend frames

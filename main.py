@@ -30,7 +30,7 @@ def parse_args():
                         help="Execution mode: 'inference' (only generate responses), 'judge' (only grade pre-generated responses offline), or 'all' (both sequentially).")
     
     # Model parameters
-    parser.add_argument("--model-family", type=str, required=False, choices=["hulumed", "qwen3vl", "lingshu", "qwen2_5_vl"],
+    parser.add_argument("--model-family", type=str, required=False, choices=["hulumed", "qwen3vl", "lingshu", "qwen2_5_vl", "mage_vl"],
                         help="Model family architecture type.")
     parser.add_argument("--model-id", type=str, required=False,
                         help="Hugging Face model identifier or path.")
@@ -60,6 +60,11 @@ def parse_args():
                         help="Qwen3-VL max pixels parameter (default: 640*480).")
     parser.add_argument("--min-pixels", type=int, default=100352,
                         help="Qwen3-VL min pixels parameter (default: 128*28*28).")
+    
+    parser.add_argument("--mage-video-backend", type=str, default="frames", choices=["frames", "codec"],
+                        help="Mage-VL video input path: 'frames' (uniform sampling, default) or 'codec'.")
+    parser.add_argument("--mage-codec-engine", type=str, default="traditional", choices=["traditional", "neural"],
+                        help="Mage-VL codec engine when --mage-video-backend=codec: 'traditional' or 'neural'.")
     
     parser.add_argument("--max-new-tokens", type=int, default=4096,
                         help="Maximum new tokens to generate.")
@@ -307,6 +312,9 @@ def main():
     elif args.model_family in ("lingshu", "qwen2_5_vl"):
         import lingshu_inference
         summaries = lingshu_inference.run(args, records, judge)
+    elif args.model_family == "mage_vl":
+        import mage_vl_inference
+        summaries = mage_vl_inference.run(args, records, judge)
         
     # 7. Print summary metrics (only in 'all' mode where judging was executed immediately)
     if args.mode == "all":
