@@ -86,7 +86,7 @@ def parse_args():
                         help="Base URL for OpenAI-compatible LLM judge API endpoint.")
     parser.add_argument("--judge-model", type=str, default="openai/gpt-oss-120b:free",
                         help="LLM judge model identifier.")
-    parser.add_argument("--judge-api-key-env", type=str, default="OPENROUTER_API_KEY",
+    parser.add_argument("--judge-api-key-env", type=str, default="PROVIDER_API_KEY",
                         help="Environment variable name that holds LLM judge API key.")
     parser.add_argument("--judge-retries", type=int, default=3,
                         help="Number of times to retry judge API calls on failure.")
@@ -136,51 +136,29 @@ def print_summary_comparison(model_family: str, summaries: dict):
         print(f"    Overall Normalised Accuracy : {clip_sum.get('overall_normalised_accuracy', 0.0):.4f}")
         if "run_stats" in clip_sum:
             stats = clip_sum["run_stats"]
-            print(f"    Total Processed Questions   : {stats.get('ok', 0)}")
+            print(f"    Total Processed Tasks       : {stats.get('ok', 0)}")
             print(f"    Total Skipped               : {stats.get('skip', 0)}")
             print(f"    Errors                      : {stats.get('error', 0)}")
-        print("    Per Question Type Metrics:")
-        for qtype, metrics in clip_sum.get("per_type", {}).items():
-            print(f"      - {qtype:<30}: {metrics.get('avg_normalised_score'):.4f} (n={metrics.get('n_samples')})")
+        print("    Per Task Breakdown:")
+        for qtype, metrics in sorted(clip_sum.get("per_type", {}).items()):
+            print(f"      - {qtype:<35}: {metrics.get('avg_normalised_score'):.4f} (n={metrics.get('n_samples')})")
             
     if "full" in summaries and summaries["full"]:
         full_sum = summaries["full"]
         print("\n  FULL-VIDEO LEVEL EVALUATION SUMMARY:")
         if "run_stats" in full_sum:
             stats = full_sum["run_stats"]
-            print(f"    Videos Successfully Evaluated: {stats.get('ok', 0) // 3}")
-            print(f"    Videos Skipped                : {stats.get('skip', 0) // 3}")
-            print(f"    Errors                        : {stats.get('error', 0)}")
+            print(f"    Videos Processed            : {stats.get('ok', 0)}")
+            print(f"    Videos Skipped              : {stats.get('skip', 0)}")
+            print(f"    Errors                      : {stats.get('error', 0)}")
         
         narration = full_sum.get("narration", {})
-        print("\n    1. NARRATION METRICS:")
+        print("\n    NARRATION METRICS:")
         print(f"      - Overall Narration Score : {narration.get('avg_overall_score')}/5")
         print(f"      - Step Coverage           : {narration.get('avg_step_coverage')}/5")
         print(f"      - Chronological Accuracy  : {narration.get('avg_chronological_accuracy')}/5")
         print(f"      - Visual/Tech Accuracy    : {narration.get('avg_visual_technical_accuracy')}/5")
         print(f"      - Narrative Flow          : {narration.get('avg_narrative_flow')}/5")
-        
-        ordering_dir = full_sum.get("sequence_ordering_direct", {})
-        ordering_cot = full_sum.get("sequence_ordering_cot", {})
-        
-        if not ordering_dir and "sequence_ordering" in full_sum:
-            ordering_dir = full_sum["sequence_ordering"]
-
-        print("\n    2. SEQUENCE ORDERING METRICS (DIRECT PROMPTING):")
-        if ordering_dir:
-            print(f"      - Kendall's Tau Score     : {ordering_dir.get('avg_kendalls_tau')}")
-            print(f"      - Exact Sequence Match    : {ordering_dir.get('exact_match_rate')}")
-            print(f"      - Valid Extraction Rate   : {ordering_dir.get('valid_rate')} (Extraction Methods: {ordering_dir.get('extraction_methods')})")
-        else:
-            print("      - No direct sequence ordering results found.")
-
-        print("\n    3. SEQUENCE ORDERING METRICS (VISUAL CoT):")
-        if ordering_cot:
-            print(f"      - Kendall's Tau Score     : {ordering_cot.get('avg_kendalls_tau')}")
-            print(f"      - Exact Sequence Match    : {ordering_cot.get('exact_match_rate')}")
-            print(f"      - Valid Extraction Rate   : {ordering_cot.get('valid_rate')} (Extraction Methods: {ordering_cot.get('extraction_methods')})")
-        else:
-            print("      - No Visual CoT sequence ordering results found.")
         
     print("=" * 60)
 

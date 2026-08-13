@@ -10,7 +10,9 @@ log = logging.getLogger("dataset_loader")
 
 def load_clip_records(dataset_root: str, splits: list[str], validate_videos: bool = True) -> list[dict]:
     """
-    Loads clip-level evaluation records from clip_*_grpo.jsonl files.
+    Loads clip-level evaluation records:
+      1. Visual description records from line 1 of clip_*_sft.jsonl (reward_type: llm_judge)
+      2. MCQ / Phase recognition records from clip_*_grpo.jsonl (reward_type: deterministic)
     
     Args:
         dataset_root: Absolute path to the dataset directory (containing Train/Validation/Test).
@@ -18,7 +20,7 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
         validate_videos: Whether to check if the corresponding video file exists before loading.
         
     Returns:
-        List of dicts representing GRPO test questions.
+        List of dicts representing clip evaluation tasks.
     """
     records = []
     root_path = Path(dataset_root)
@@ -29,12 +31,61 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
             log.warning(f"Split directory {split_path} not found.")
             continue
             
-        # Iterate over each YouTube ID folder in the split
-        for yt_dir in sorted(p for p in split_path.iterdir() if p.is_dir()):
-            # Find all clip_*_grpo.jsonl files
-            grpo_files = sorted(yt_dir.glob("clip_*_grpo.jsonl"))
+        # Iterate over each procedure directory (YouTube ID or PH_*) in the split
+        for dir_entry in sorted(p for p in split_path.iterdir() if p.is_dir()):
+            dir_name = dir_entry.name
+            
+            # 1. Load Visual Description from line 1 of all clip_*_sft.jsonl files
+            sft_files = sorted(dir_entry.glob("clip_*_sft.jsonl"))
+            for sft_file in sft_files:
+                try:
+                    clip_stem = sft_file.name.replace("_sft.jsonl", "")
+                    with open(sft_file, "r", encoding="utf-8") as f:
+                        first_line = f.readline().strip()
+                    if not first_line:
+                        continue
+                    sft_record = json.loads(first_line)
+                    messages = sft_record.get("messages", [])
+                    user_msg = next((m for m in messages if m.get("role") == "user"), None)
+                    assistant_msg = next((m for m in messages if m.get("role") == "assistant"), None)
+                    
+                    if not user_msg or not assistant_msg:
+                        continue
+                        
+                    user_content = user_msg.get("content", [])
+                    video_block = next((b for b in user_content if b.get("type") == "video"), None)
+                    text_block = next((b for b in user_content if b.get("type") == "text"), None)
+                    
+                    relative_video_path = video_block.get("video", "") if video_block else f"{dir_name}/{clip_stem}.mp4"
+                    question_text = text_block.get("text", "") if text_block else "Describe what is happening in this cataract surgical video clip."
+                    reference_desc = assistant_msg.get("content", "").strip()
+                    
+                    video_abs_path = str(split_path / relative_video_path)
+                    if validate_videos and not os.path.exists(video_abs_path):
+                        log.warning(f"Video file not found at {video_abs_path}. Skipping visual description record.")
+                        continue
+                        
+                    records.append({
+                        "clip_id": f"{dir_name}_{clip_stem}",
+                        "yt_id": dir_name,
+                        "split": split,
+                        "video_path": video_abs_path,
+                        "relative_video_path": relative_video_path,
+                        "question_text": question_text,
+                        "correct_answer": "",
+                        "question_type": "visual_description",
+                        "reference_reasoning": reference_desc,
+                        "reference_description": reference_desc,
+                        "reward_type": "llm_judge"
+                    })
+                except Exception as e:
+                    log.error(f"Error reading sft file {sft_file}: {e}")
+                    
+            # 2. Load MCQs / Phase recognition from all clip_*_grpo.jsonl files
+            grpo_files = sorted(dir_entry.glob("clip_*_grpo.jsonl"))
             for grpo_file in grpo_files:
                 try:
+                    clip_stem = grpo_file.name.replace("_grpo.jsonl", "")
                     with open(grpo_file, "r", encoding="utf-8") as f:
                         for line_idx, line in enumerate(f, 1):
                             line = line.strip()
@@ -42,13 +93,11 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
                                 continue
                             record = json.loads(line)
                             
-                            # Extract prompt parts
                             prompt_messages = record.get("prompt", [])
                             if not prompt_messages:
                                 continue
                             user_content = prompt_messages[0].get("content", [])
                             
-                            # Find video and text blocks
                             video_block = next((b for b in user_content if b.get("type") == "video"), None)
                             text_block = next((b for b in user_content if b.get("type") == "text"), None)
                             
@@ -59,27 +108,25 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
                             relative_video_path = video_block.get("video", "")
                             question_text = text_block.get("text", "")
                             
-                            # Resolve video absolute path
-                            # relative_video_path is e.g. "0xUbMicNy-w/clip_01.mp4"
                             video_abs_path = str(split_path / relative_video_path)
-                            
                             if validate_videos and not os.path.exists(video_abs_path):
                                 log.warning(f"Video file not found at {video_abs_path}. Skipping record.")
                                 continue
                                 
-                            # Add split info to the record and normalize fields
-                            # So that it is easy to parse later
+                            qtype = record.get("question_type", "unknown")
+                            
                             records.append({
-                                "clip_id": os.path.splitext(relative_video_path.replace("/", "_"))[0],
-                                "yt_id": yt_dir.name,
+                                "clip_id": f"{dir_name}_{clip_stem}",
+                                "yt_id": dir_name,
                                 "split": split,
                                 "video_path": video_abs_path,
                                 "relative_video_path": relative_video_path,
                                 "question_text": question_text,
                                 "correct_answer": record.get("correct_answer", ""),
-                                "question_type": record.get("question_type", "unknown"),
+                                "question_type": qtype,
                                 "reference_reasoning": record.get("reference_reasoning", ""),
-                                "reward_type": record.get("reward_type", "deterministic")
+                                "reference_description": record.get("reference_reasoning", ""),
+                                "reward_type": "deterministic"
                             })
                 except Exception as e:
                     log.error(f"Error reading grpo file {grpo_file}: {e}")
@@ -90,7 +137,7 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
 
 def load_full_video_records(dataset_root: str, splits: list[str], validate_videos: bool = True) -> list[dict]:
     """
-    Loads full-video level evaluation records (narration and chronological step reordering).
+    Loads full-video level evaluation records (narration only).
     
     Args:
         dataset_root: Absolute path to the dataset directory.
@@ -98,7 +145,7 @@ def load_full_video_records(dataset_root: str, splits: list[str], validate_video
         validate_videos: Whether to check if full_video.mp4 exists.
         
     Returns:
-        List of dicts containing full-video questions and reference answers.
+        List of dicts containing full-video narration questions and reference answers.
     """
     records = []
     root_path = Path(dataset_root)
@@ -112,15 +159,12 @@ def load_full_video_records(dataset_root: str, splits: list[str], validate_video
         for yt_dir in sorted(p for p in split_path.iterdir() if p.is_dir()):
             yt_id = yt_dir.name
             sft_path = yt_dir / "full_video_sft.jsonl"
-            grpo_path = yt_dir / "full_video_grpo.jsonl"
             video_abs_path = str(yt_dir / "full_video.mp4")
             
             if validate_videos and not os.path.exists(video_abs_path):
-                log.warning(f"Full video not found at {video_abs_path}. Skipping.")
                 continue
                 
-            if not sft_path.exists() or not grpo_path.exists():
-                log.warning(f"Missing full_video_sft.jsonl or full_video_grpo.jsonl for {yt_id}. Skipping.")
+            if not sft_path.exists():
                 continue
                 
             # Parse Narration (first record in full_video_sft.jsonl)
@@ -150,38 +194,12 @@ def load_full_video_records(dataset_root: str, splits: list[str], validate_video
                 log.error(f"Error parsing SFT narration file for {yt_id}: {e}")
                 continue
                 
-            # Parse Sequence Ordering (first record in full_video_grpo.jsonl)
-            try:
-                with open(grpo_path, "r", encoding="utf-8") as f:
-                    grpo_line = f.readline().strip()
-                if not grpo_line:
-                    continue
-                grpo_record = json.loads(grpo_line)
-                prompt_messages = grpo_record.get("prompt", [])
-                
-                if not prompt_messages:
-                    continue
-                    
-                ordering_user = prompt_messages[0].get("content", [])
-                ordering_text_block = next((b for b in ordering_user if b.get("type") == "text"), None)
-                
-                if not ordering_text_block:
-                    continue
-                    
-                ordering_q = ordering_text_block.get("text", "")
-                correct_answer = grpo_record.get("correct_answer", "")
-            except Exception as e:
-                log.error(f"Error parsing GRPO ordering file for {yt_id}: {e}")
-                continue
-                
             records.append({
                 "yt_id": yt_id,
                 "split": split,
                 "video_path": video_abs_path,
                 "narration_question": narration_q,
-                "narration_reference": narration_ref,
-                "ordering_question": ordering_q,
-                "correct_answer": correct_answer
+                "narration_reference": narration_ref
             })
             
     log.info(f"Loaded {len(records)} full-video records from split(s): {splits}")

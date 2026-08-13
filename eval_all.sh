@@ -14,9 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://api.gapgpt.app/v1}"
 JUDGE_MODEL="${JUDGE_MODEL:-deepseek-v4-flash}"
-OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
 
-export OPENROUTER_API_KEY
+export PROVIDER_API_KEY
 
 log "Output Directory: $OUTPUT_DIR"
 log "Judge Base URL: $JUDGE_BASE_URL"
@@ -140,7 +140,7 @@ for tag in "${!tags[@]}"; do
         --output-dir "$OUTPUT_DIR" \
         --judge-base-url "$JUDGE_BASE_URL" \
         --judge-model "$JUDGE_MODEL" \
-        --judge-api-key-env "OPENROUTER_API_KEY"
+        --judge-api-key-env "PROVIDER_API_KEY"
 done
 
 log "--------------------------------------------------"

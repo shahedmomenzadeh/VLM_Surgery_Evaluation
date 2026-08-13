@@ -19,6 +19,7 @@ env/
 
 # Results and outputs
 results/
+results_old/
 
 # Dataset files
 dataset/

@@ -9,14 +9,14 @@ import logging
 from openai import OpenAI
 
 from prompts import (
-    CLIP_JUDGE_SYSTEM_PROMPT,
-    CLIP_JUDGE_USER_TEMPLATE,
+    DESCRIPTION_JUDGE_SYSTEM_PROMPT,
+    DESCRIPTION_JUDGE_USER_TEMPLATE,
     NARRATION_JUDGE_SYSTEM_PROMPT,
     NARRATION_JUDGE_USER_TEMPLATE,
-    ORDERING_JUDGE_SYSTEM_PROMPT,
-    ORDERING_JUDGE_USER_TEMPLATE,
     CLIP_EXTRACTOR_SYSTEM_PROMPT,
-    CLIP_EXTRACTOR_USER_TEMPLATE
+    CLIP_EXTRACTOR_USER_TEMPLATE,
+    PHASE_EXTRACTOR_SYSTEM_PROMPT,
+    PHASE_EXTRACTOR_USER_TEMPLATE
 )
 
 log = logging.getLogger("llm_judge")
@@ -24,7 +24,7 @@ log = logging.getLogger("llm_judge")
 
 def extract_answer_letter(text: str) -> str:
     """
-    Extracts the answer letter from a model response.
+    Extracts the answer letter (A-D) from a model response.
     Priority: explicit 'ANSWER: X' -> 'answer is X' -> last bare A/B/C/D.
     Returns '' if nothing found.
     """
@@ -43,6 +43,34 @@ def extract_answer_letter(text: str) -> str:
     return letters[-1] if letters else ""
 
 
+def extract_answer_phase(text: str) -> str:
+    """
+    Extracts the surgical phase identifier (P01-P13) from a model response.
+    Priority: 'Final answer: PXX' -> 'ANSWER: PXX' -> 'answer is PXX' -> last isolated PXX.
+    Returns '' if nothing found.
+    """
+    m = re.search(r"(?:Final answer|ANSWER)\s*:\s*(P0[1-9]|P1[0-3])", text, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+
+    m = re.search(
+        r"(?:(?:final\s+)?answer\s+is\s+|phase\s+is\s+|phase\s*:?\s*)(P0[1-9]|P1[0-3])\b",
+        text, re.IGNORECASE
+    )
+    if m:
+        return m.group(1).upper()
+
+    phases = re.findall(r"\b(P0[1-9]|P1[0-3])\b", text.upper())
+    return phases[-1] if phases else ""
+
+
+def extract_clip_answer(text: str, correct_answer: str) -> str:
+    """Dispatches extraction based on whether the expected answer is a phase code or MCQ letter."""
+    if correct_answer.strip().upper().startswith("P"):
+        return extract_answer_phase(text)
+    return extract_answer_letter(text)
+
+
 def truncate_model_response(model_response: str, max_tokens: int = 2048) -> str:
     """
     Truncates a model response if it exceeds ~max_tokens (approx 4 chars per token).
@@ -53,68 +81,12 @@ def truncate_model_response(model_response: str, max_tokens: int = 2048) -> str:
     max_chars = max_tokens * 4
     if len(model_response) > max_chars:
         truncated = model_response[:max_chars]
-        answer_suffix_match = re.search(r"(?:ANSWER|SEQUENCE)\s*:.*$", model_response, re.IGNORECASE)
+        answer_suffix_match = re.search(r"(?:ANSWER|Final answer)\s*:.*$", model_response, re.IGNORECASE)
         suffix = f"\n\n[TRUNCATED: Response exceeded {max_tokens} tokens]"
         if answer_suffix_match and answer_suffix_match.group(0) not in truncated:
             suffix += f"\n{answer_suffix_match.group(0)}"
         return truncated + suffix
     return model_response
-
-
-def parse_letter_sequence(text: str, valid_letters: set[str]) -> list[str]:
-    """
-    Programmatic extraction of a full ordering of `valid_letters` from free text.
-
-    Scans for runs of single uppercase letters separated by commas, arrows,
-    "then", or "and" (e.g. "B, C, A", "B -> C -> A", "B then C then A").
-    A run only counts as a candidate if it is an exact permutation of
-    `valid_letters` (same letters, same count, each used once).
-
-    Returns the LAST such candidate found, or [] if none qualifies.
-    """
-    n = len(valid_letters)
-    sep = r"(?:\s*,\s*|\s*->\s*|\s*→\s*|\s+THEN\s+|\s+AND\s+)"
-    pattern = rf"\b[A-Z]\b(?:{sep}\b[A-Z]\b)*"
-
-    candidates = []
-    for chunk in re.findall(pattern, text.upper()):
-        letters = re.findall(r"[A-Z]", chunk)
-        if len(letters) == n and set(letters) == valid_letters:
-            candidates.append(letters)
-
-    return candidates[-1] if candidates else []
-
-
-def kendalls_tau(reference_order: list[str], predicted_order: list[str]) -> float | None:
-    """Kendall's tau-a between two permutations of the same label set."""
-    if (
-        not predicted_order
-        or set(reference_order) != set(predicted_order)
-        or len(reference_order) != len(predicted_order)
-    ):
-        return None
-
-    rank_ref = {label: i for i, label in enumerate(reference_order)}
-    rank_pred = {label: i for i, label in enumerate(predicted_order)}
-
-    labels = list(rank_ref.keys())
-    n = len(labels)
-    total_pairs = n * (n - 1) / 2
-    if total_pairs == 0:
-        return 1.0
-
-    concordant = discordant = 0
-    for i in range(n):
-        for j in range(i + 1, n):
-            a, b = labels[i], labels[j]
-            ref_sign = rank_ref[a] - rank_ref[b]
-            pred_sign = rank_pred[a] - rank_pred[b]
-            if ref_sign * pred_sign > 0:
-                concordant += 1
-            elif ref_sign * pred_sign < 0:
-                discordant += 1
-
-    return (concordant - discordant) / total_pairs
 
 
 class LLMJudge:
@@ -136,7 +108,7 @@ class LLMJudge:
             log.warning("No API key provided for LLMJudge. LLM-based scoring will fall back to deterministic scoring.")
 
     def _extract_clip_letter_llm(self, model_response: str) -> str:
-        """Fallback to LLM to extract answer letter for structured misalignments."""
+        """Fallback to LLM to extract MCQ answer letter for structured misalignments."""
         if not self.client:
             return ""
             
@@ -162,22 +134,64 @@ class LLMJudge:
                     return ans
                 return ""
             except Exception as e:
-                log.warning(f"Clip extractor API attempt {attempt}/{self.retries} failed: {e}")
+                log.warning(f"Clip MCQ extractor API attempt {attempt}/{self.retries} failed: {e}")
+            if attempt < self.retries:
+                time.sleep(1)
+        return ""
+
+    def _extract_phase_llm(self, model_response: str) -> str:
+        """Fallback to LLM to extract phase identifier (P01-P13) for structured misalignments."""
+        if not self.client:
+            return ""
+            
+        model_response = truncate_model_response(model_response, max_tokens=2048)
+        user_msg = PHASE_EXTRACTOR_USER_TEMPLATE.format(model_response=model_response)
+        
+        for attempt in range(1, self.retries + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": PHASE_EXTRACTOR_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_msg}
+                    ]
+                )
+                raw = response.choices[0].message.content.strip()
+                raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+                result = json.loads(raw)
+                ans = result.get("extracted_answer", "").strip().upper()
+                valid_phases = {f"P{i:02d}" for i in range(1, 14)}
+                if ans in valid_phases:
+                    return ans
+                return ""
+            except Exception as e:
+                log.warning(f"Phase extractor API attempt {attempt}/{self.retries} failed: {e}")
             if attempt < self.retries:
                 time.sleep(1)
         return ""
 
     def score_clip_deterministic(self, model_response: str, correct_answer: str) -> dict:
-        """Deterministic exact letter match scoring (0 or 1). Falls back to LLM extractor."""
-        extracted = extract_answer_letter(model_response)
+        """
+        Deterministic scoring for MCQs and Phase identification (0 or 1).
+        Supports A-D letters and P01-P13 phase codes with LLM extractor fallback.
+        """
+        correct_clean = correct_answer.strip().upper()
+        is_phase = correct_clean.startswith("P")
+        
+        extracted = extract_clip_answer(model_response, correct_clean)
         method = "deterministic"
         
         if not extracted and self.client:
-            extracted = self._extract_clip_letter_llm(model_response)
+            if is_phase:
+                extracted = self._extract_phase_llm(model_response)
+            else:
+                extracted = self._extract_clip_letter_llm(model_response)
             if extracted:
                 method = "llm_extractor"
                 
-        is_correct = (extracted == correct_answer.upper())
+        is_correct = (extracted == correct_clean)
         return {
             "score": 1 if is_correct else 0,
             "max_score": 1,
@@ -187,27 +201,26 @@ class LLMJudge:
             "justification": ""
         }
 
-    def score_clip_llm_judge(
-        self,
-        question_text: str,
-        correct_answer: str,
-        reference_reasoning: str,
-        model_response: str
-    ) -> dict:
-        """Scores a clip multiple-choice question using the LLM judge (0-3 scale)."""
+    def score_description(self, reference_description: str, model_response: str) -> dict:
+        """
+        Scores a visual description of a clip using the LLM judge (0-5 scale).
+        Compares actions, instruments, and anatomy against the reference description.
+        """
         if not self.client:
-            log.warning("LLM client not initialized. Falling back to deterministic scoring for LLM-judge task.")
-            result = self.score_clip_deterministic(model_response, correct_answer)
-            result["method"] = "llm_judge_fallback"
-            result["max_score"] = 3
-            result["score"] = result["score"] * 3  # Scale 0/1 to 0/3
-            return result
+            log.warning("LLM client not initialized for visual description scoring. Scoring as 0.")
+            return {
+                "score": 0,
+                "max_score": 5,
+                "normalised_score": 0.0,
+                "extracted_answer": "N/A",
+                "correct": False,
+                "method": "llm_judge_fallback",
+                "justification": "LLM client not initialized"
+            }
 
         model_response = truncate_model_response(model_response, max_tokens=2048)
-        user_msg = CLIP_JUDGE_USER_TEMPLATE.format(
-            question_text=question_text,
-            correct_answer=correct_answer,
-            reference_reasoning=reference_reasoning,
+        user_msg = DESCRIPTION_JUDGE_USER_TEMPLATE.format(
+            reference_description=reference_description,
             model_response=model_response
         )
 
@@ -218,34 +231,42 @@ class LLMJudge:
                     max_tokens=2048,
                     response_format={"type": "json_object"},
                     messages=[
-                        {"role": "system", "content": CLIP_JUDGE_SYSTEM_PROMPT},
+                        {"role": "system", "content": DESCRIPTION_JUDGE_SYSTEM_PROMPT},
                         {"role": "user", "content": user_msg}
                     ]
                 )
                 raw = response.choices[0].message.content.strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
+                score = int(result.get("score", 0))
+                score = max(0, min(5, score))
+                normalised = round(score / 5.0, 4)
                 return {
-                    "score": int(result.get("score", 0)),
-                    "max_score": 3,
-                    "extracted_answer": result.get("extracted_answer", "NONE"),
-                    "correct": result.get("extracted_answer", "").upper() == correct_answer.upper(),
+                    "score": score,
+                    "max_score": 5,
+                    "normalised_score": normalised,
+                    "extracted_answer": "N/A",
+                    "correct": score >= 3,
                     "method": "llm_judge",
                     "justification": result.get("justification", "")
                 }
             except json.JSONDecodeError as e:
-                log.warning(f"Clip judge JSON parse attempt {attempt}/{self.retries} failed: {e}")
+                log.warning(f"Description judge JSON parse attempt {attempt}/{self.retries} failed: {e}")
             except Exception as e:
-                log.warning(f"Clip judge API attempt {attempt}/{self.retries} failed: {e}")
+                log.warning(f"Description judge API attempt {attempt}/{self.retries} failed: {e}")
             if attempt < self.retries:
                 time.sleep(2 * attempt)
 
-        log.error("Clip judge failed all attempts. Falling back to deterministic scoring.")
-        result = self.score_clip_deterministic(model_response, correct_answer)
-        result["method"] = "llm_judge_failed"
-        result["max_score"] = 3
-        result["score"] = result["score"] * 3
-        return result
+        log.error("Description judge failed all attempts. Scoring as 0.")
+        return {
+            "score": 0,
+            "max_score": 5,
+            "normalised_score": 0.0,
+            "extracted_answer": "N/A",
+            "correct": False,
+            "method": "llm_judge_failed",
+            "justification": "All LLM judge attempts failed"
+        }
 
     def score_narration(self, reference_narration: str, model_response: str) -> dict:
         """Scores a full-video narration using the LLM judge (0-5 per dimension)."""
@@ -284,6 +305,7 @@ class LLMJudge:
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 overall = int(result.get("overall_score", 0))
+                overall = max(0, min(5, overall))
                 return {
                     "step_coverage": int(result.get("step_coverage", 0)),
                     "chronological_accuracy": int(result.get("chronological_accuracy", 0)),
@@ -291,7 +313,7 @@ class LLMJudge:
                     "narrative_flow": int(result.get("narrative_flow", 0)),
                     "overall_score": overall,
                     "max_score": 5,
-                    "normalized_score": round(overall / 5, 4),
+                    "normalized_score": round(overall / 5.0, 4),
                     "justification": result.get("justification", ""),
                     "method": "llm_judge"
                 }
@@ -310,74 +332,6 @@ class LLMJudge:
             "justification": "All LLM judge attempts failed", "method": "llm_judge_failed"
         }
 
-    def score_ordering(self, question_text: str, correct_answer: str, model_response: str) -> dict:
-        """
-        Scores a full-video sequence ordering question.
-        Uses regex first, and falls back to LLM judge if regex fails.
-        """
-        correct_sequence = [c.strip().upper() for c in correct_answer.split(",") if c.strip()]
-        valid_letters = set(correct_sequence)
-
-        # 1. Try programmatic regex extraction
-        predicted_sequence = parse_letter_sequence(model_response, valid_letters)
-        method = "regex"
-
-        if not predicted_sequence and self.client:
-            # 2. LLM judge fallback
-            method = "llm_judge"
-            truncated_response = truncate_model_response(model_response, max_tokens=2048)
-            system_prompt = ORDERING_JUDGE_SYSTEM_PROMPT.format(
-                valid_letters=", ".join(sorted(valid_letters))
-            )
-            user_msg = ORDERING_JUDGE_USER_TEMPLATE.format(
-                question_text=question_text,
-                model_response=truncated_response
-            )
-
-            llm_sequence = None
-            for attempt in range(1, self.retries + 1):
-                try:
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        max_tokens=8192,
-                        response_format={"type": "json_object"},
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_msg}
-                        ]
-                    )
-                    raw = response.choices[0].message.content.strip()
-                    raw = re.sub(r"```(?:json)?|```", "", raw).strip()
-                    result = json.loads(raw)
-                    llm_sequence = [str(x).strip().upper() for x in result.get("predicted_sequence", [])]
-                    break
-                except json.JSONDecodeError as e:
-                    log.warning(f"Ordering judge JSON parse attempt {attempt}/{self.retries} failed: {e}")
-                except Exception as e:
-                    log.warning(f"Ordering judge API attempt {attempt}/{self.retries} failed: {e}")
-                if attempt < self.retries:
-                    time.sleep(2 * attempt)
-
-            if llm_sequence is None:
-                log.error("Ordering judge failed all attempts. Empty predicted sequence.")
-                predicted_sequence = []
-                method = "llm_judge_failed"
-            else:
-                predicted_sequence = llm_sequence
-
-        tau = kendalls_tau(correct_sequence, predicted_sequence)
-        valid = tau is not None
-        exact = valid and (predicted_sequence == correct_sequence)
-
-        return {
-            "correct_sequence": correct_sequence,
-            "predicted_sequence": predicted_sequence,
-            "valid_sequence": valid,
-            "kendalls_tau": tau,
-            "exact_match": exact,
-            "method": method
-        }
-
     def grade_responses_file(self, responses_path: str, scores_path: str, summary_path: str, level: str, model_id: str, tag: str) -> dict:
         """
         Reads a self-contained responses JSONL file, evaluates each record,
@@ -386,7 +340,6 @@ class LLMJudge:
         if not os.path.exists(responses_path):
             raise FileNotFoundError(f"Responses file not found at: {responses_path}")
 
-        # Get already scored ids for resume support
         processed_ids = set()
         if os.path.exists(scores_path):
             with open(scores_path, "r", encoding="utf-8") as f:
@@ -423,20 +376,17 @@ class LLMJudge:
                     question_type = record.get("question_type")
                     reward_type = record.get("reward_type")
                     correct_answer = record.get("correct_answer")
-                    question_text = record.get("question_text")
                     model_response = record.get("model_response")
-                    reference_reasoning = record.get("reference_reasoning", "")
+                    reference_description = record.get("reference_description") or record.get("reference_reasoning", "")
 
                     if (clip_id, question_type) in processed_ids:
                         continue
 
                     log.info(f"Grading clip {clip_id} ({question_type})...")
                     try:
-                        if reward_type == "llm_judge":
-                            score_info = self.score_clip_llm_judge(
-                                question_text=question_text,
-                                correct_answer=correct_answer,
-                                reference_reasoning=reference_reasoning,
+                        if reward_type == "llm_judge" or "visual_description" in question_type:
+                            score_info = self.score_description(
+                                reference_description=reference_description,
                                 model_response=model_response
                             )
                         else:
@@ -445,7 +395,7 @@ class LLMJudge:
                                 correct_answer=correct_answer
                             )
                         
-                        normalised = round(score_info["score"] / score_info["max_score"], 4)
+                        normalised = round(score_info["score"] / score_info["max_score"], 4) if score_info.get("max_score", 0) > 0 else 0.0
                         score_record = {
                             "clip_id": clip_id,
                             "question_type": question_type,
@@ -467,7 +417,6 @@ class LLMJudge:
                 else:  # level == "full"
                     yt_id = record.get("yt_id")
                     task_type = record.get("task_type")
-                    question_text = record.get("question_text")
                     model_response = record.get("model_response")
 
                     if (yt_id, task_type) in processed_ids:
@@ -481,25 +430,16 @@ class LLMJudge:
                                 reference_narration=reference_narration,
                                 model_response=model_response
                             )
-                        else:  # sequence_ordering
-                            correct_answer = record.get("correct_answer", "")
-                            score_info = self.score_ordering(
-                                question_text=question_text,
-                                correct_answer=correct_answer,
-                                model_response=model_response
-                            )
-
-                        score_record = {
-                            "yt_id": yt_id,
-                            "task_type": task_type,
-                            **score_info
-                        }
-                        score_f.write(json.dumps(score_record) + "\n")
-                        score_f.flush()
+                            score_record = {
+                                "yt_id": yt_id,
+                                "task_type": task_type,
+                                **score_info
+                            }
+                            score_f.write(json.dumps(score_record) + "\n")
+                            score_f.flush()
                     except Exception as e:
                         log.error(f"Error grading full video {yt_id} task {task_type}: {e}")
 
-        # Generate summary
         return self._generate_summary(scores_path, summary_path, level, model_id, tag)
 
     def _generate_summary(self, scores_path: str, summary_path: str, level: str, model_id: str, tag: str) -> dict:
@@ -536,8 +476,6 @@ class LLMJudge:
             }
         else:  # level == "full"
             narration_rows = []
-            ordering_direct_rows = []
-            ordering_cot_rows = []
             with open(scores_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -548,35 +486,12 @@ class LLMJudge:
                         tt = row["task_type"]
                         if tt == "narration":
                             narration_rows.append(row)
-                        elif tt in ("sequence_ordering", "sequence_ordering_direct"):
-                            ordering_direct_rows.append(row)
-                        elif tt == "sequence_ordering_cot":
-                            ordering_cot_rows.append(row)
                     except Exception:
                         continue
 
             def avg(values):
                 values = [v for v in values if v is not None]
                 return round(sum(values) / len(values), 4) if values else None
-
-            def compile_ordering_summary(rows):
-                if not rows:
-                    return {}
-                valid_ordering = [r for r in rows if r.get("valid_sequence")]
-                return {
-                    "n_samples": len(rows),
-                    "n_valid": len(valid_ordering),
-                    "valid_rate": round(len(valid_ordering) / len(rows), 4) if rows else None,
-                    "avg_kendalls_tau": avg([r.get("kendalls_tau") for r in valid_ordering]),
-                    "exact_match_rate": (
-                        round(sum(1 for r in rows if r.get("exact_match")) / len(rows), 4)
-                        if rows else None
-                    ),
-                    "extraction_methods": {
-                        m: sum(1 for r in rows if r.get("method") == m)
-                        for m in {r.get("method") for r in rows if r.get("method")}
-                    }
-                }
 
             narration_summary = {
                 "n_samples": len(narration_rows),
@@ -588,15 +503,10 @@ class LLMJudge:
                 "avg_narrative_flow": avg([r.get("narrative_flow") for r in narration_rows])
             }
 
-            ordering_direct_summary = compile_ordering_summary(ordering_direct_rows)
-            ordering_cot_summary = compile_ordering_summary(ordering_cot_rows)
-
             summary = {
                 "model_id": model_id,
                 "tag": tag,
-                "narration": narration_summary,
-                "sequence_ordering_direct": ordering_direct_summary,
-                "sequence_ordering_cot": ordering_cot_summary
+                "narration": narration_summary
             }
 
         with open(summary_path, "w", encoding="utf-8") as f:

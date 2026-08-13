@@ -5,20 +5,63 @@
 # INFERENCE SUFFIXES
 # =============================================================================
 
-# Suffix to append to clip-level multiple-choice questions
-CLIP_INFERENCE_SUFFIX = (
+# --- 1. Clip-Level Multiple-Choice Questions (YouTube MCQs) ---
+
+# Suffix for CoT reasoning (reasoning trace before final letter)
+CLIP_MCQ_COT_SUFFIX = (
     "\n\nInstructions: Think through the question step-by-step based on what "
     "you observe in the video. Be concise and do not repeat yourself. "
     "Conclude with your final answer on a new line in the format: ANSWER: <letter>\n"
     "Stop generating immediately after providing the answer."
 )
+# Backward-compatible alias
+CLIP_INFERENCE_SUFFIX = CLIP_MCQ_COT_SUFFIX
 
-# Suffix to append to clip-level multiple-choice questions for direct answering (no reasoning)
-CLIP_DIRECT_INFERENCE_SUFFIX = (
+# Suffix for Direct answering (only the option letter)
+CLIP_MCQ_DIRECT_SUFFIX = (
     "\n\nInstructions: Answer the question by outputting only the letter of the correct option "
     "(e.g., A, B, C, or D) on a new line in the format: ANSWER: <letter>\n"
     "Provide no reasoning or extra text, and stop generating immediately."
 )
+# Backward-compatible alias
+CLIP_DIRECT_INFERENCE_SUFFIX = CLIP_MCQ_DIRECT_SUFFIX
+
+
+# --- 2. Phase Recognition (Phase Track Ontology P01-P13) ---
+
+# Suffix for CoT reasoning
+PHASE_COT_SUFFIX = (
+    "\n\nInstructions: Think through the video step-by-step based on visible evidence from the surgical ontology. "
+    "Conclude with your final answer on a new line in the format: Final answer: PXX\n"
+    "Stop generating immediately after providing the answer."
+)
+
+# Suffix for Direct answering
+PHASE_DIRECT_SUFFIX = (
+    "\n\nInstructions: Identify the surgical phase from the surgical ontology. "
+    "Output only the final ontology ID on a new line in the format: Final answer: PXX\n"
+    "Provide no reasoning or extra text, and stop generating immediately."
+)
+
+
+# --- 3. Visual Description (YouTube & Phase Track Line 1) ---
+
+# Suffix for Direct Visual Description
+DESCRIPTION_DIRECT_SUFFIX = (
+    "\n\nInstructions: Provide a concise, detailed, and factual description of the visible surgical actions, "
+    "instruments, and anatomical changes in this clip. Focus strictly on what is directly visible. "
+    "Do not include step-by-step reasoning preamble or meta-commentary."
+)
+
+# Suffix for Chain-of-Thought Visual Description
+DESCRIPTION_COT_SUFFIX = (
+    "\n\nInstructions: Analyze this clip step-by-step. First, systematically observe and identify all visible "
+    "instruments and anatomical structures. Next, explain each surgical maneuver observed chronologically. "
+    "Finally, synthesize a comprehensive, cohesive summary description of the surgical activity."
+)
+
+
+# --- 4. Full-Video Narration ---
 
 # Suffix to append to full-video narration questions
 NARRATION_INFERENCE_SUFFIX = (
@@ -27,56 +70,41 @@ NARRATION_INFERENCE_SUFFIX = (
     "Do not include raw timestamps. Only describe the events you clearly see, and stop generating once the video concludes."
 )
 
-# Suffix to append for direct sequence ordering (no reasoning)
-ORDERING_DIRECT_INFERENCE_SUFFIX = (
-    "\n\nInstructions: Output only the correct sequence of letters separated by commas "
-    "(e.g., B, D, A, C).\n"
-    "Provide no reasoning or extra text, and stop generating immediately."
-)
-
-# Suffix to append for Visual Chain-of-Thought (CoT) sequence ordering (reasoning first)
-ORDERING_COT_INFERENCE_SUFFIX = (
-    "\n\nInstructions: Analyze the video and think through the chronological flow "
-    "step-by-step. First, describe the sequence of surgical steps you observe in the "
-    "video concisely without repeating yourself. Conclude with your final answer on a new line in the format: "
-    "SEQUENCE: <letters separated by commas> (e.g., SEQUENCE: B, D, A, C).\n"
-    "Stop generating immediately after providing the sequence."
-)
-
-
 
 # =============================================================================
-# CLIP-LEVEL JUDGE PROMPTS (visual_observation)
+# VISUAL DESCRIPTION JUDGE PROMPTS
 # =============================================================================
 
-CLIP_JUDGE_SYSTEM_PROMPT = """You are an expert surgical educator evaluating a Vision-Language Model's answer to a multiple-choice question about a cataract surgery video clip.
+DESCRIPTION_JUDGE_SYSTEM_PROMPT = """You are a senior ophthalmic surgeon and surgical educator evaluating a Vision-Language Model's visual description of a cataract surgery video clip against an expert ground-truth reference description.
 
-Your job is to score the model's response on a scale of 0–3:
+Evaluate the model's response across the following clinical criteria:
+1. SURGICAL ACTIONS & MANEUVERS: Are the active surgical steps correctly identified and described?
+2. INSTRUMENTS & TOOLS: Are the instruments used (or shown) accurately named and described?
+3. ANATOMICAL STRUCTURES: Are the relevant intraocular anatomical structures and tissue responses accurately depicted?
+4. FACTUALITY & HALLUCINATIONS: Does the model avoid hallucinating actions, instruments, or structures not supported by the reference?
 
-  3 — Correct letter AND reasoning clearly describes accurate visual details
-  2 — Correct letter but reasoning is vague, generic, or partially wrong
-  1 — Wrong letter but reasoning shows partial understanding of the visual scene
-  0 — Wrong letter and reasoning is incorrect or irrelevant
-
-Be strict: do NOT give credit for lucky correct answers backed by bad reasoning.
+Score the description on an integer scale of 0–5:
+  5 — Excellent: Captures all key surgical actions, instruments, and anatomical interactions with clinical accuracy; no hallucinations.
+  4 — Good: Accurately captures the primary surgical maneuver and visible tools; minor non-critical omissions.
+  3 — Moderate: Broadly correct regarding the general step, but lacks specific details, misnames an instrument, or contains minor inaccuracies.
+  2 — Poor: Misses the primary surgical action, misidentifies critical anatomy/instruments, or contains notable hallucinations.
+  1 — Very Poor: Highly inaccurate or generic boilerplate that barely relates to the actual surgical scene.
+  0 — Irrelevant / Contradictory: Completely wrong, describes unrelated surgery, or contradicts the reference.
 
 Respond ONLY with a JSON object — no extra text, no markdown fences:
 {
-  "score": <integer 0-3>,
-  "extracted_answer": "<letter the model gave, or 'NONE'>",
-  "justification": "<one sentence>"
+  "score": <integer 0-5>,
+  "max_score": 5,
+  "justification": "<one to two sentences explaining the score based on actions, instruments, and anatomy>"
 }"""
 
-CLIP_JUDGE_USER_TEMPLATE = """Question asked to the model:
-{question_text}
+DESCRIPTION_JUDGE_USER_TEMPLATE = """REFERENCE DESCRIPTION (ground truth):
+{reference_description}
 
-Correct answer: {correct_answer}
-Reference reasoning: {reference_reasoning}
-
-Model response:
+MODEL RESPONSE:
 {model_response}
 
-Score the model response."""
+Score the model's visual description against the reference."""
 
 
 # =============================================================================
@@ -143,40 +171,7 @@ Score the model's narration."""
 
 
 # =============================================================================
-# FULL-VIDEO SEQUENCE ORDERING PROMPTS
-# =============================================================================
-
-ORDERING_JUDGE_SYSTEM_PROMPT = """You are extracting a Vision-Language Model's predicted ordering of surgical steps from its raw response to a step-reordering question about a cataract surgery video.
-
-The model was shown a list of lettered surgical step descriptions (in shuffled order) and asked to output the letters in the chronological order the steps actually occur in the video.
-
-Your job: read the model's response and extract the FINAL sequence of letters it intended as its structured answer.
-
-Rules:
-- Output every distinct letter from the valid option set below exactly once, in the order the model intends.
-- Fix any structured formatting misalignments (e.g., missing spaces, incorrect delimiters like A,B,C instead of A, B, C).
-- CRITICAL: Do NOT attempt to deduce or extract the answer from the model's reasoning trace. ONLY extract the final committed answer sequence. If the model did not provide a final answer statement, return an empty list.
-- Do not include letters outside the valid option set.
-- Do not add letters the model never mentioned.
-
-Valid option set: {valid_letters}
-
-Respond ONLY with a JSON object — no extra text, no markdown fences:
-{{
-  "predicted_sequence": ["<letter>", "<letter>", ...],
-  "complete": <true/false>
-}}"""
-
-ORDERING_JUDGE_USER_TEMPLATE = """Question shown to the model:
-{question_text}
-
-Model response:
-{model_response}
-
-Extract the predicted chronological ordering."""
-
-# =============================================================================
-# CLIP-LEVEL DETERMINISTIC FALLBACK EXTRACTOR
+# DETERMINISTIC FALLBACK EXTRACTORS
 # =============================================================================
 
 CLIP_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final answer letter from a model's response to a multiple-choice question.
@@ -196,3 +191,22 @@ CLIP_EXTRACTOR_USER_TEMPLATE = """Model response:
 {model_response}
 
 Extract the final answer letter."""
+
+
+PHASE_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final phase identifier (P01 to P13) from a model's response to a cataract surgery phase recognition question.
+The model was instructed to output 'Final answer: PXX' or 'ANSWER: PXX'. If it used a slightly different format (e.g., 'P09', 'Answer: P09', 'Phase is P09'), extract the phase ID.
+
+Rules:
+- Only extract a valid phase ID in the set P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13.
+- CRITICAL: Do NOT attempt to deduce the phase by reading the reasoning trace. ONLY extract the phase if it is explicitly stated as the final answer.
+- If no valid phase statement is found, return 'NONE'.
+
+Respond ONLY with a JSON object — no extra text, no markdown fences:
+{
+  "extracted_answer": "<phase ID P01-P13, or 'NONE'>"
+}"""
+
+PHASE_EXTRACTOR_USER_TEMPLATE = """Model response:
+{model_response}
+
+Extract the final phase identifier."""
