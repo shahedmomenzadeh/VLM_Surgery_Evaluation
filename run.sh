@@ -58,10 +58,10 @@ export HF_HOME="$SCRIPT_DIR/hf_cache"
 # ── DOWNLOAD TEST DATASET ──────────────────────────────────────────────────
 log "Installing gdown for Google Drive downloads..."
 pip install gdown
-
+# https://drive.google.com/file/d/1wDf0F5r5YlI6IgJHBADbn8nbbm8VkIBN/view?usp=sharing
 if [ ! -d "$SCRIPT_DIR/dataset/Test" ]; then
     log "Downloading Test split from Google Drive..."
-    gdown 1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw --output "$SCRIPT_DIR/Test.zip"
+    gdown 1wDf0F5r5YlI6IgJHBADbn8nbbm8VkIBN --output "$SCRIPT_DIR/Test.zip"
     log "Extracting Test.zip into dataset directory..."
     unzip -q -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
     rm -f "$SCRIPT_DIR/Test.zip"
