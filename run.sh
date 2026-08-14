@@ -63,7 +63,7 @@ if [ ! -d "$SCRIPT_DIR/dataset/Test" ]; then
     log "Downloading Test split from Google Drive..."
     gdown 1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw --output "$SCRIPT_DIR/Test.zip"
     log "Extracting Test.zip into dataset directory..."
-    unzip -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
+    unzip -q -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
     rm -f "$SCRIPT_DIR/Test.zip"
     log "Test dataset ready."
 else
@@ -79,10 +79,17 @@ else
 fi
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 MAX_FRAMES="${MAX_FRAMES:-32}"
+USE_FLASH="${USE_FLASH:-false}"
 
 log "Dataset Root: $DATASET_ROOT"
 log "Output Directory: $OUTPUT_DIR"
 log "Max Frames: $MAX_FRAMES"
+log "Use FlashAttention-2: $USE_FLASH"
+
+FLASH_ARG=""
+if [ "$USE_FLASH" = "true" ]; then
+    FLASH_ARG="--use-flash-attn"
+fi
 
 # Helper to find python inside venv cross-platform (Windows Scripts/ vs Linux bin/)
 get_venv_python() {
@@ -125,6 +132,11 @@ uv pip install --python "$HULUMED_PYTHON" \
     "tqdm" \
     "imageio"
 
+if [ "$USE_FLASH" = "true" ]; then
+    log "Installing flash-attn for HuluMed..."
+    uv pip install --python "$HULUMED_PYTHON" --no-build-isolation "flash-attn>=2.6.0"
+fi
+
 # ── 4. QWEN3-VL ENVIRONMENT SETTINGS ───────────────────────────────────────
 QWEN_VENV="$SCRIPT_DIR/.venv-qwen3vl"
 if [ ! -d "$QWEN_VENV" ]; then
@@ -148,6 +160,11 @@ uv pip install --python "$QWEN_PYTHON" \
     "openai" \
     "tqdm" \
     "imageio"
+
+if [ "$USE_FLASH" = "true" ]; then
+    log "Installing flash-attn for Qwen3-VL / Lingshu..."
+    uv pip install --python "$QWEN_PYTHON" --no-build-isolation "flash-attn>=2.6.0"
+fi
 
 # ── 5. MAGE-VL ENVIRONMENT SETTINGS ────────────────────────────────────────
 MAGEVL_VENV="$SCRIPT_DIR/.venv-magevl"
@@ -200,7 +217,8 @@ log "Running HuluMed inference on ZJU-AI4H/Hulu-Med-7B (both levels, temp=0.6)..
     --max-frames "$MAX_FRAMES" \
     --max-new-tokens 4096 \
     --temperature 0.6 \
-    --frame-size 224
+    --frame-size 224 \
+    $FLASH_ARG
 
 # ── Qwen3-VL Evaluation (Largest First) ──────────────────────────────────
 QWEN_LARGEST_MODELS=(
@@ -220,7 +238,8 @@ for item in "${QWEN_LARGEST_MODELS[@]}"; do
         --output-dir "$OUTPUT_DIR" \
         --max-frames "$MAX_FRAMES" \
         --max-new-tokens "$tokens" \
-        --max-pixels 66976
+        --max-pixels 66976 \
+        $FLASH_ARG
 done
 
 # ── HuluMed Evaluation (Remaining) ──────────────────────────────────────
@@ -234,7 +253,8 @@ log "Running HuluMed inference on ZJU-AI4H/Hulu-Med-4B (both levels, temp=0.6)..
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
     --max-new-tokens 4096 \
-    --temperature 0.6
+    --temperature 0.6 \
+    $FLASH_ARG
 
 # ── Qwen3-VL Evaluation (Remaining) ─────────────────────────────────────
 QWEN_REMAINING_MODELS=(
@@ -255,7 +275,8 @@ for item in "${QWEN_REMAINING_MODELS[@]}"; do
         --data-level both \
         --output-dir "$OUTPUT_DIR" \
         --max-frames "$MAX_FRAMES" \
-        --max-new-tokens "$tokens"
+        --max-new-tokens "$tokens" \
+        $FLASH_ARG
 done
 
 # ── Lingshu-7B Evaluation (Qwen2.5-VL) ──────────────────────────────────
@@ -268,7 +289,8 @@ log "Running Lingshu-7B inference on lingshu-medical-mllm/Lingshu-7B (both level
     --data-level both \
     --output-dir "$OUTPUT_DIR" \
     --max-frames "$MAX_FRAMES" \
-    --max-new-tokens 4096
+    --max-new-tokens 4096 \
+    $FLASH_ARG
 
 # ── Mage-VL Evaluation (microsoft/Mage-VL, codec-native 4B) ─────────────
 log "Running Mage-VL inference on microsoft/Mage-VL (both levels, frame-sampling backend)..."

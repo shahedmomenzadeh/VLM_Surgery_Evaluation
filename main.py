@@ -71,6 +71,12 @@ def parse_args():
     parser.add_argument("--temperature", type=float, default=0.1,
                         help="Model sampling temperature. Use 0.0 for greedy decoding.")
     
+    # Attention implementation
+    parser.add_argument("--use-flash-attn", action="store_true", default=False,
+                        help="Use FlashAttention-2 (flash_attention_2) instead of SDPA (sdpa).")
+    parser.add_argument("--attn-implementation", type=str, default=None, choices=["sdpa", "flash_attention_2", "eager"],
+                        help="Explicit attention implementation. Defaults to 'flash_attention_2' if --use-flash-attn, else 'sdpa'.")
+
     # Quantization and Memory parameters
     parser.add_argument("--load-in-4bit", action="store_true", default=True,
                         help="Load model in 4-bit NF4 format using bitsandbytes (default: True).")
@@ -96,6 +102,10 @@ def parse_args():
                         help="Only load the dataset records and print samples. Does not instantiate models.")
                         
     args = parser.parse_args()
+    
+    # Resolve attention implementation
+    if args.attn_implementation is None:
+        args.attn_implementation = "flash_attention_2" if args.use_flash_attn else "sdpa"
     
     # Parse frame-size if provided
     if args.frame_size:

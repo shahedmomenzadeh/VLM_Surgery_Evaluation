@@ -19,6 +19,7 @@ MAX_FRAMES="${MAX_FRAMES:-32}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2048}"
 TEMPERATURE="${TEMPERATURE:-0.1}"
 SPLIT="Test"
+USE_FLASH="${USE_FLASH:-false}"
 
 # Google Drive file ID for Test.zip
 DRIVE_FILE_ID="${DRIVE_FILE_ID:-1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw}"
@@ -28,7 +29,7 @@ DRIVE_FILE_ID="${DRIVE_FILE_ID:-1ziUmbavxCsnjfHu59BTMWLxJAgQrdJaw}"
 # export HF_TOKEN
 export HF_HOME="$WORKING_DIR/hf_cache"
 
-if [ -n "$HF_TOKEN" ]; then
+if [ -n "${HF_TOKEN:-}" ]; then
     export HF_TOKEN
 fi
 
@@ -40,6 +41,7 @@ log "Dataset Dir:  $DATASET_DIR"
 log "Output Dir:   $OUTPUT_DIR"
 log "Split:        $SPLIT"
 log "Max Frames:   $MAX_FRAMES"
+log "Flash-Attn 2: $USE_FLASH"
 log "=================================================="
 
 # ── 2. DOWNLOAD DATASET ────────────────────────────────────────────────────
@@ -52,7 +54,7 @@ if [ ! -d "$DATASET_DIR/Test" ]; then
 
     log "Unzipping Test.zip into $DATASET_DIR..."
     mkdir -p "$DATASET_DIR"
-    unzip -o "$WORKING_DIR/Test.zip" -d "$DATASET_DIR"
+    unzip -q -o "$WORKING_DIR/Test.zip" -d "$DATASET_DIR"
     rm -f "$WORKING_DIR/Test.zip"
     log "Dataset ready at $DATASET_DIR."
 else
@@ -73,6 +75,13 @@ pip install -q \
     "openai" \
     "tqdm" \
     "imageio"
+
+FLASH_ARG=""
+if [ "$USE_FLASH" = "true" ]; then
+    log "Installing flash-attn for accelerated inference..."
+    pip install -q flash-attn --no-build-isolation
+    FLASH_ARG="--use-flash-attn"
+fi
 
 log "All dependencies installed."
 
@@ -100,7 +109,8 @@ for MODEL_ID in "${MODELS[@]}"; do
         --max-frames "$MAX_FRAMES" \
         --max-new-tokens "$MAX_NEW_TOKENS" \
         --temperature "$TEMPERATURE" \
-        --no-4bit
+        --no-4bit \
+        $FLASH_ARG
 
     log "Inference completed for $MODEL_ID."
 done

@@ -158,8 +158,9 @@ def run(args, records: dict, judge) -> dict:
         trust_remote_code=True,
         device_map="auto",
         quantization_config=quant_config,
-        attn_implementation="sdpa"
+        attn_implementation=getattr(args, "attn_implementation", "sdpa")
     )
+    log.info(f"Using attention implementation: {getattr(args, 'attn_implementation', 'sdpa')}")
     model.eval()
     log.info(f"VRAM after model load: {vram_stats()}")
     

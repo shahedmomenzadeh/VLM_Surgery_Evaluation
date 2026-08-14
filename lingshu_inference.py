@@ -222,10 +222,11 @@ def run(args, records: dict, judge) -> dict:
         device_map="auto",
         max_memory=max_memory,
         torch_dtype=torch.float16,
-        attn_implementation="sdpa",
+        attn_implementation=getattr(args, "attn_implementation", "sdpa"),
         low_cpu_mem_usage=True,
         trust_remote_code=True
     )
+    log.info(f"Using attention implementation: {getattr(args, 'attn_implementation', 'sdpa')}")
     model.eval()
     
     primary_device = first_device(model)
