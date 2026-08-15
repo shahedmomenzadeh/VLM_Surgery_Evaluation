@@ -114,10 +114,10 @@ fi
 
 HULUMED_PYTHON=$(get_venv_python "$HULUMED_VENV")
 
-log "Installing PyTorch with CUDA 12.6 for HuluMed..."
+log "Installing PyTorch with CUDA 13.0 for HuluMed..."
 uv pip install --python "$HULUMED_PYTHON" \
     torch torchvision \
-    --index-url https://download.pytorch.org/whl/cu126
+    --index-url https://download.pytorch.org/whl/cu130
 
 log "Checking and installing HuluMed remaining requirements..."
 uv pip install --python "$HULUMED_PYTHON" \
@@ -146,10 +146,10 @@ fi
 
 QWEN_PYTHON=$(get_venv_python "$QWEN_VENV")
 
-log "Installing PyTorch with CUDA 12.6 for Qwen3-VL..."
+log "Installing PyTorch with CUDA 13.0 for Qwen3-VL..."
 uv pip install --python "$QWEN_PYTHON" \
     torch torchvision \
-    --index-url https://download.pytorch.org/whl/cu126
+    --index-url https://download.pytorch.org/whl/cu130
 
 log "Checking and installing Qwen3-VL remaining requirements..."
 uv pip install --python "$QWEN_PYTHON" \

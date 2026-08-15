@@ -18,7 +18,7 @@ env/
 *.ipynb_checkpoints/
 
 # Results and outputs
-results/
+# results/
 results_old/
 
 # Dataset files
