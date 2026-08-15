@@ -16,7 +16,7 @@ OUTPUT_DIR="$WORKING_DIR/results"
 RESULTS_ZIP="$WORKING_DIR/results_magevl.zip"
 
 MODEL_ID="${MODEL_ID:-microsoft/Mage-VL}"
-MAX_FRAMES="${MAX_FRAMES:-32}"
+MAX_FRAMES="${MAX_FRAMES:-16}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2048}"
 VIDEO_BACKEND="${VIDEO_BACKEND:-frames}"     # frames or codec
 SPLIT="Test"
