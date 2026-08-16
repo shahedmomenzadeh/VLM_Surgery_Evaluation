@@ -98,6 +98,8 @@ def parse_args():
                         help="Number of times to retry judge API calls on failure.")
     
     # Operational parameters
+    parser.add_argument("--num-workers", type=int, default=3,
+                        help="Number of concurrent workers for judge evaluation (default: 3).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Only load the dataset records and print samples. Does not instantiate models.")
                         
@@ -204,7 +206,8 @@ def main():
             base_url=args.judge_base_url,
             api_key=judge_api_key,
             model=args.judge_model,
-            retries=args.judge_retries
+            retries=args.judge_retries,
+            num_workers=args.num_workers
         )
         summaries = {}
         
@@ -285,7 +288,8 @@ def main():
         base_url=args.judge_base_url,
         api_key=judge_api_key,
         model=args.judge_model,
-        retries=args.judge_retries
+        retries=args.judge_retries,
+        num_workers=args.num_workers
     )
     
     # 6. Dispatch model VLM inference runner

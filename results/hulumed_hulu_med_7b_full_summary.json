@@ -1,0 +1,13 @@
+{
+    "model_id": "ZJU-AI4H/Hulu-Med-7B",
+    "tag": "hulumed_hulu_med_7b",
+    "narration": {
+        "n_samples": 15,
+        "avg_overall_score": 0.5333,
+        "avg_normalized_score": 0.1067,
+        "avg_step_coverage": 0.5333,
+        "avg_chronological_accuracy": 0.8,
+        "avg_visual_technical_accuracy": 0.4,
+        "avg_narrative_flow": 2.9333
+    }
+}

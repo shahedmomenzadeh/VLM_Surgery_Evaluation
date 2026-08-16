@@ -113,6 +113,10 @@ def get_processed_ids(file_path: str, id_key: str, type_key: str) -> set[tuple]:
                 continue
             try:
                 row = json.loads(line)
+                method = str(row.get("method", ""))
+                justification = str(row.get("justification", ""))
+                if method in ("llm_judge_failed", "llm_judge_fallback") or "All LLM judge attempts failed" in justification or "LLM client not initialized" in justification:
+                    continue
                 processed.add((row[id_key], row[type_key]))
             except (json.JSONDecodeError, KeyError):
                 continue

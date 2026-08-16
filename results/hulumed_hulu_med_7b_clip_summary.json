@@ -1,0 +1,48 @@
+{
+    "model_id": "ZJU-AI4H/Hulu-Med-7B",
+    "tag": "hulumed_hulu_med_7b",
+    "total_scored": 1940,
+    "overall_normalised_accuracy": 0.4257,
+    "per_type": {
+        "visual_description_cot": {
+            "n_samples": 308,
+            "avg_normalised_score": 0.2305
+        },
+        "visual_description_direct": {
+            "n_samples": 308,
+            "avg_normalised_score": 0.2494
+        },
+        "step_identification_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.3898
+        },
+        "step_identification_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.4576
+        },
+        "visual_observation_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.7401
+        },
+        "visual_observation_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.8588
+        },
+        "instrument_identification_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.6045
+        },
+        "instrument_identification_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.6328
+        },
+        "phase_identification_cot": {
+            "n_samples": 131,
+            "avg_normalised_score": 0.1145
+        },
+        "phase_identification_direct": {
+            "n_samples": 131,
+            "avg_normalised_score": 0.084
+        }
+    }
+}

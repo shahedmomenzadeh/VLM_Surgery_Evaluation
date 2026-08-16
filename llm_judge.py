@@ -94,11 +94,12 @@ class LLMJudge:
     Unified LLM judge class that handles deterministic scoring and API-based LLM grading
     for both clip-level and full-video evaluations.
     """
-    def __init__(self, base_url: str, api_key: str, model: str, retries: int = 3):
+    def __init__(self, base_url: str, api_key: str, model: str, retries: int = 3, num_workers: int = 3):
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
         self.retries = retries
+        self.num_workers = num_workers
         
         # Initialize OpenAI client if api_key is available
         if self.api_key:
@@ -336,11 +337,23 @@ class LLMJudge:
         """
         Reads a self-contained responses JSONL file, evaluates each record,
         writes scores to a scores file, and generates a summary JSON.
+        Automatically detects and re-evaluates records that previously failed judge attempts,
+        replacing failed entries with fresh evaluations.
         """
         if not os.path.exists(responses_path):
             raise FileNotFoundError(f"Responses file not found at: {responses_path}")
 
-        processed_ids = set()
+        def is_valid_score(row: dict) -> bool:
+            method = str(row.get("method", ""))
+            justification = str(row.get("justification", ""))
+            if method in ("llm_judge_failed", "llm_judge_fallback"):
+                return False
+            if "All LLM judge attempts failed" in justification or "LLM client not initialized" in justification:
+                return False
+            return True
+
+        # Load existing valid scores into memory
+        valid_scores_by_key = {}
         if os.path.exists(scores_path):
             with open(scores_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -349,96 +362,123 @@ class LLMJudge:
                         continue
                     try:
                         row = json.loads(line)
-                        if level == "clip":
-                            processed_ids.add((row["clip_id"], row["question_type"]))
-                        else:
-                            processed_ids.add((row["yt_id"], row["task_type"]))
+                        if is_valid_score(row):
+                            if level == "clip":
+                                valid_scores_by_key[(row["clip_id"], row["question_type"])] = row
+                            else:
+                                valid_scores_by_key[(row["yt_id"], row["task_type"])] = row
                     except (json.JSONDecodeError, KeyError):
                         continue
 
-        log.info(f"Offline grading of {responses_path} started. Graded count to resume: {len(processed_ids)}")
+        log.info(f"Offline grading of {responses_path} started. Valid scores already cached: {len(valid_scores_by_key)}")
 
-        with open(responses_path, "r", encoding="utf-8") as resp_f, \
-             open(scores_path, "a", encoding="utf-8") as score_f:
-            
+        # Read all responses to preserve original order
+        all_responses = []
+        with open(responses_path, "r", encoding="utf-8") as resp_f:
             for line_idx, line in enumerate(resp_f, 1):
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    record = json.loads(line)
+                    all_responses.append(json.loads(line))
                 except json.JSONDecodeError as e:
                     log.error(f"Failed to parse JSON response line {line_idx}: {e}")
                     continue
 
-                if level == "clip":
-                    clip_id = record.get("clip_id")
-                    question_type = record.get("question_type")
-                    reward_type = record.get("reward_type")
-                    correct_answer = record.get("correct_answer")
-                    model_response = record.get("model_response")
-                    reference_description = record.get("reference_description") or record.get("reference_reasoning", "")
+        # Helper to atomically flush all scores to disk
+        def flush_scores_to_file():
+            tmp_scores_path = f"{scores_path}.tmp"
+            with open(tmp_scores_path, "w", encoding="utf-8") as score_f:
+                for resp_rec in all_responses:
+                    if level == "clip":
+                        key = (resp_rec.get("clip_id"), resp_rec.get("question_type"))
+                    else:
+                        key = (resp_rec.get("yt_id"), resp_rec.get("task_type"))
+                    if key in valid_scores_by_key:
+                        score_f.write(json.dumps(valid_scores_by_key[key]) + "\n")
+            if os.path.exists(tmp_scores_path):
+                os.replace(tmp_scores_path, scores_path)
 
-                    if (clip_id, question_type) in processed_ids:
-                        continue
+        # Grade any un-evaluated or previously failed responses
+        new_or_updated = 0
+        for record in all_responses:
+            if level == "clip":
+                clip_id = record.get("clip_id")
+                question_type = record.get("question_type")
+                reward_type = record.get("reward_type")
+                correct_answer = record.get("correct_answer")
+                model_response = record.get("model_response")
+                reference_description = record.get("reference_description") or record.get("reference_reasoning", "")
+                key = (clip_id, question_type)
 
-                    log.info(f"Grading clip {clip_id} ({question_type})...")
-                    try:
-                        if reward_type == "llm_judge" or "visual_description" in question_type:
-                            score_info = self.score_description(
-                                reference_description=reference_description,
-                                model_response=model_response
-                            )
-                        else:
-                            score_info = self.score_clip_deterministic(
-                                model_response=model_response,
-                                correct_answer=correct_answer
-                            )
-                        
-                        normalised = round(score_info["score"] / score_info["max_score"], 4) if score_info.get("max_score", 0) > 0 else 0.0
+                if key in valid_scores_by_key:
+                    continue
+
+                log.info(f"Grading clip {clip_id} ({question_type})...")
+                try:
+                    if reward_type == "llm_judge" or "visual_description" in question_type:
+                        score_info = self.score_description(
+                            reference_description=reference_description,
+                            model_response=model_response
+                        )
+                    else:
+                        score_info = self.score_clip_deterministic(
+                            model_response=model_response,
+                            correct_answer=correct_answer
+                        )
+                    
+                    normalised = round(score_info["score"] / score_info["max_score"], 4) if score_info.get("max_score", 0) > 0 else 0.0
+                    score_record = {
+                        "clip_id": clip_id,
+                        "question_type": question_type,
+                        "reward_type": reward_type,
+                        "correct_answer": correct_answer,
+                        "extracted_answer": score_info["extracted_answer"],
+                        "score": score_info["score"],
+                        "max_score": score_info["max_score"],
+                        "normalised_score": normalised,
+                        "correct": score_info["correct"],
+                        "method": score_info["method"],
+                        "justification": score_info.get("justification", "")
+                    }
+                    valid_scores_by_key[key] = score_record
+                    new_or_updated += 1
+                    if new_or_updated % 10 == 0:
+                        flush_scores_to_file()
+                except Exception as e:
+                    log.error(f"Error grading clip {clip_id}: {e}")
+
+            else:  # level == "full"
+                yt_id = record.get("yt_id")
+                task_type = record.get("task_type")
+                model_response = record.get("model_response")
+                key = (yt_id, task_type)
+
+                if key in valid_scores_by_key:
+                    continue
+
+                log.info(f"Grading full video {yt_id} ({task_type})...")
+                try:
+                    if task_type == "narration":
+                        reference_narration = record.get("reference_narration", "")
+                        score_info = self.score_narration(
+                            reference_narration=reference_narration,
+                            model_response=model_response
+                        )
                         score_record = {
-                            "clip_id": clip_id,
-                            "question_type": question_type,
-                            "reward_type": reward_type,
-                            "correct_answer": correct_answer,
-                            "extracted_answer": score_info["extracted_answer"],
-                            "score": score_info["score"],
-                            "max_score": score_info["max_score"],
-                            "normalised_score": normalised,
-                            "correct": score_info["correct"],
-                            "method": score_info["method"],
-                            "justification": score_info.get("justification", "")
+                            "yt_id": yt_id,
+                            "task_type": task_type,
+                            **score_info
                         }
-                        score_f.write(json.dumps(score_record) + "\n")
-                        score_f.flush()
-                    except Exception as e:
-                        log.error(f"Error grading clip {clip_id}: {e}")
+                        valid_scores_by_key[key] = score_record
+                        new_or_updated += 1
+                        flush_scores_to_file()
+                except Exception as e:
+                    log.error(f"Error grading full video {yt_id} task {task_type}: {e}")
 
-                else:  # level == "full"
-                    yt_id = record.get("yt_id")
-                    task_type = record.get("task_type")
-                    model_response = record.get("model_response")
-
-                    if (yt_id, task_type) in processed_ids:
-                        continue
-
-                    log.info(f"Grading full video {yt_id} ({task_type})...")
-                    try:
-                        if task_type == "narration":
-                            reference_narration = record.get("reference_narration", "")
-                            score_info = self.score_narration(
-                                reference_narration=reference_narration,
-                                model_response=model_response
-                            )
-                            score_record = {
-                                "yt_id": yt_id,
-                                "task_type": task_type,
-                                **score_info
-                            }
-                            score_f.write(json.dumps(score_record) + "\n")
-                            score_f.flush()
-                    except Exception as e:
-                        log.error(f"Error grading full video {yt_id} task {task_type}: {e}")
+        # Final flush to ensure all scores are written in exact original order
+        flush_scores_to_file()
+        log.info(f"Grading completed for {responses_path}. Total scored: {len(valid_scores_by_key)} (New/Replaced: {new_or_updated})")
 
         return self._generate_summary(scores_path, summary_path, level, model_id, tag)
 
