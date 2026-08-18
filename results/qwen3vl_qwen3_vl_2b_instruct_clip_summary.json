@@ -1,0 +1,48 @@
+{
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "tag": "qwen3vl_qwen3_vl_2b_instruct",
+    "total_scored": 1940,
+    "overall_normalised_accuracy": 0.4368,
+    "per_type": {
+        "visual_description_cot": {
+            "n_samples": 308,
+            "avg_normalised_score": 0.261
+        },
+        "visual_description_direct": {
+            "n_samples": 308,
+            "avg_normalised_score": 0.276
+        },
+        "step_identification_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.3164
+        },
+        "step_identification_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.3164
+        },
+        "visual_observation_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.7797
+        },
+        "visual_observation_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.8983
+        },
+        "instrument_identification_cot": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.7062
+        },
+        "instrument_identification_direct": {
+            "n_samples": 177,
+            "avg_normalised_score": 0.6667
+        },
+        "phase_identification_cot": {
+            "n_samples": 131,
+            "avg_normalised_score": 0.1298
+        },
+        "phase_identification_direct": {
+            "n_samples": 131,
+            "avg_normalised_score": 0.0992
+        }
+    }
+}
