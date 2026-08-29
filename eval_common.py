@@ -1,5 +1,9 @@
 # eval_common.py
 # Unified evaluation infrastructure and shared utilities across all VLM models
+#
+# The evaluation dataset embeds the full task instruction (including the strict
+# JSON {"explanation", "answer"} output contract) in every record, so questions
+# are passed to the model as-is: one prompt per record, no CoT/direct variants.
 
 import os
 import gc
@@ -9,15 +13,7 @@ import traceback
 import torch
 from tqdm import tqdm
 
-from prompts import (
-    CLIP_MCQ_COT_SUFFIX,
-    CLIP_MCQ_DIRECT_SUFFIX,
-    PHASE_COT_SUFFIX,
-    PHASE_DIRECT_SUFFIX,
-    DESCRIPTION_COT_SUFFIX,
-    DESCRIPTION_DIRECT_SUFFIX,
-    NARRATION_INFERENCE_SUFFIX
-)
+from llm_judge import PHASE_TASK_TYPES, build_score_record
 
 log = logging.getLogger("eval_common")
 
@@ -144,11 +140,12 @@ def run_clip_evaluation_loop(
 ) -> dict:
     """
     Generic execution loop for clip-level evaluation:
-      - Iterates across clip tasks (visual description, phase ID, MCQs).
-      - Executes both _cot and _direct prompt variants.
-      - Dispatches scoring to LLM judge or deterministic exact-match.
+      - Iterates once over each clip task (visual description, MCQs, phase understanding)
+        — one prompt per record, no CoT/direct variants.
+      - Dispatches scoring: LLM judge for visual descriptions,
+        deterministic for MCQs and phase tasks.
       - Produces responses.jsonl, scores.jsonl, and summary.json.
-      
+
     Args:
         generate_fn: Callable(video_path: str, question_text: str, log_id: str) -> str | None
         records: List of clip records from dataset_loader.
@@ -162,151 +159,105 @@ def run_clip_evaluation_loop(
     os.makedirs(output_dir, exist_ok=True)
     responses_path = os.path.join(output_dir, f"{tag}_responses.jsonl")
     scores_path = os.path.join(output_dir, f"{tag}_scores.jsonl")
-    
+
     if args.mode == "inference":
-        processed_ids = get_processed_ids(responses_path, "clip_id", "question_type")
+        processed_ids = get_processed_ids(responses_path, "record_id", "question_type")
         _log.info(f"Inference-only mode. Resuming from responses file. Pre-existing count: {len(processed_ids)}")
     else:
-        processed_ids = get_processed_ids(scores_path, "clip_id", "question_type")
+        processed_ids = get_processed_ids(scores_path, "record_id", "question_type")
         _log.info(f"Resuming clip-level evaluation: {len(processed_ids)} questions already scored.")
-        
+
     n_ok = n_skip = n_error = 0
-    
+
     resp_f = open(responses_path, "a", encoding="utf-8")
     score_f = open(scores_path, "a", encoding="utf-8") if args.mode != "inference" else None
-    
+
     try:
         pbar = tqdm(records, desc=f"Clip Eval [{tag}]", leave=True, dynamic_ncols=True)
         for record in pbar:
-            clip_id = record["clip_id"]
+            record_id = record["record_id"]
             video_path = record["video_path"]
-            base_qtype = record["question_type"]
-            
-            # Map prompt suffixes and scoring criteria by task category
-            if base_qtype == "visual_description":
-                tasks = [
-                    {
-                        "suffix": "_cot",
-                        "prompt_suffix": DESCRIPTION_COT_SUFFIX,
-                        "reward_type": "llm_judge",
-                        "log_type": "cot"
-                    },
-                    {
-                        "suffix": "_direct",
-                        "prompt_suffix": DESCRIPTION_DIRECT_SUFFIX,
-                        "reward_type": "llm_judge",
-                        "log_type": "direct"
-                    }
-                ]
-            elif base_qtype == "phase_identification":
-                tasks = [
-                    {
-                        "suffix": "_cot",
-                        "prompt_suffix": PHASE_COT_SUFFIX,
-                        "reward_type": "deterministic",
-                        "log_type": "cot"
-                    },
-                    {
-                        "suffix": "_direct",
-                        "prompt_suffix": PHASE_DIRECT_SUFFIX,
-                        "reward_type": "deterministic",
-                        "log_type": "direct"
-                    }
-                ]
-            else:  # YouTube MCQs (step_identification, instrument_identification, visual_observation)
-                tasks = [
-                    {
-                        "suffix": "_cot",
-                        "prompt_suffix": CLIP_MCQ_COT_SUFFIX,
-                        "reward_type": "deterministic",
-                        "log_type": "cot"
-                    },
-                    {
-                        "suffix": "_direct",
-                        "prompt_suffix": CLIP_MCQ_DIRECT_SUFFIX,
-                        "reward_type": "deterministic",
-                        "log_type": "direct"
-                    }
-                ]
-            
-            for task in tasks:
-                qtype_with_suffix = f"{base_qtype}{task['suffix']}"
-                
-                if (clip_id, qtype_with_suffix) in processed_ids:
-                    n_skip += 1
-                    continue
-                    
-                question_text = record["question_text"] + task["prompt_suffix"]
-                
-                pbar.set_postfix_str(f"Gen {clip_id} ({task['log_type']})", refresh=True)
-                model_response = generate_fn(
-                    video_path=video_path,
-                    question_text=question_text,
-                    log_id=f"clip/{clip_id}_{task['log_type']}"
-                )
-                
-                if model_response is None:
-                    n_error += 1
-                    continue
-                    
-                # Write raw model response
-                write_jsonl(resp_f, {
-                    "clip_id": clip_id,
-                    "question_type": qtype_with_suffix,
-                    "reward_type": task["reward_type"],
-                    "correct_answer": record["correct_answer"],
-                    "question_text": record["question_text"],
-                    "reference_description": record.get("reference_description", ""),
-                    "reference_reasoning": record.get("reference_reasoning", ""),
-                    "model_response": model_response
-                })
-                
-                # Execute scoring if judge is active
-                if args.mode != "inference" and score_f is not None:
-                    pbar.set_postfix_str(f"Judge {clip_id} ({task['log_type']})", refresh=True)
-                    try:
-                        if task["reward_type"] == "llm_judge" or "visual_description" in qtype_with_suffix:
-                            score_info = judge.score_description(
-                                reference_description=record.get("reference_description") or record.get("reference_reasoning", ""),
-                                model_response=model_response
-                            )
-                        else:
-                            score_info = judge.score_clip_deterministic(
-                                model_response=model_response,
-                                correct_answer=record["correct_answer"]
-                            )
-                            
-                        normalised = round(score_info["score"] / score_info["max_score"], 4) if score_info.get("max_score", 0) > 0 else 0.0
-                        write_jsonl(score_f, {
-                            "clip_id": clip_id,
-                            "question_type": qtype_with_suffix,
-                            "reward_type": task["reward_type"],
-                            "correct_answer": record["correct_answer"],
-                            "extracted_answer": score_info["extracted_answer"],
-                            "score": score_info["score"],
-                            "max_score": score_info["max_score"],
-                            "normalised_score": normalised,
-                            "correct": score_info["correct"],
-                            "method": score_info["method"],
-                            "justification": score_info.get("justification", "")
-                        })
-                        n_ok += 1
-                    except Exception as e:
-                        _log.error(f"Error scoring clip {clip_id} ({qtype_with_suffix}): {e}\n{traceback.format_exc()}")
-                        n_error += 1
-                else:
+            qtype = record["question_type"]
+            task_category = record["task_category"]
+            reward_type = record["reward_type"]
+
+            if (record_id, qtype) in processed_ids:
+                n_skip += 1
+                continue
+
+            question_text = record["question_text"]
+
+            pbar.set_postfix_str(f"Gen {record_id}", refresh=True)
+            model_response = generate_fn(
+                video_path=video_path,
+                question_text=question_text,
+                log_id=f"clip/{record_id}"
+            )
+
+            if model_response is None:
+                n_error += 1
+                continue
+
+            # Write raw model response
+            write_jsonl(resp_f, {
+                "record_id": record_id,
+                "task_category": task_category,
+                "question_type": qtype,
+                "reward_type": reward_type,
+                "correct_answer": record["correct_answer"],
+                "question_text": question_text,
+                "reference_reasoning": record.get("reference_reasoning", ""),
+                "reference_description": record.get("reference_description", ""),
+                "model_response": model_response
+            })
+
+            # Execute scoring if judge is active
+            if args.mode != "inference" and score_f is not None:
+                pbar.set_postfix_str(f"Judge {record_id}", refresh=True)
+                try:
+                    if reward_type == "llm_judge" or task_category == "visual_description":
+                        score_info = judge.score_description(
+                            reference_description=record.get("reference_description") or record.get("reference_reasoning", ""),
+                            model_response=model_response
+                        )
+                    elif task_category == "phase" or qtype in PHASE_TASK_TYPES:
+                        score_info = judge.score_phase_task(
+                            question_type=qtype,
+                            model_response=model_response,
+                            correct_answer=record["correct_answer"]
+                        )
+                    else:
+                        score_info = judge.score_mcq(
+                            model_response=model_response,
+                            correct_answer=record["correct_answer"]
+                        )
+
+                    score_record = build_score_record(
+                        resp_id=record_id,
+                        task_category=task_category,
+                        question_type=qtype,
+                        reward_type=reward_type,
+                        correct_answer=record["correct_answer"],
+                        score_info=score_info,
+                    )
+                    write_jsonl(score_f, score_record)
                     n_ok += 1
-                    
+                except Exception as e:
+                    _log.error(f"Error scoring clip {record_id} ({qtype}): {e}\n{traceback.format_exc()}")
+                    n_error += 1
+            else:
+                n_ok += 1
+
             pbar.set_postfix(ok=n_ok, skip=n_skip, err=n_error)
     finally:
         resp_f.close()
         if score_f is not None:
             score_f.close()
-            
+
     if args.mode == "inference":
         _log.info("Inference-only mode run completed. Output is recorded offline.")
         return {}
-            
+
     # Aggregate and save summary
     all_normalised = []
     per_type_agg = {}
@@ -324,7 +275,7 @@ def run_clip_evaluation_loop(
                     all_normalised.append(ns)
                 except Exception:
                     continue
-                    
+
     summary = {
         "model_id": args.model_id,
         "tag": tag,
@@ -339,11 +290,11 @@ def run_clip_evaluation_loop(
             for qt, scores in per_type_agg.items()
         }
     }
-    
+
     summary_path = os.path.join(output_dir, f"{tag}_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=4)
-        
+
     return summary
 
 
@@ -358,8 +309,7 @@ def run_full_video_evaluation_loop(
 ) -> dict:
     """
     Generic execution loop for full-video level evaluation:
-      - Iterates across uncut surgery recordings.
-      - Executes long-context procedural narration task.
+      - Iterates across uncut surgery recordings (narration task only).
       - Evaluates narration across 4 clinical dimensions + overall score.
       - Produces responses.jsonl, scores.jsonl, and summary.json.
     """
@@ -367,78 +317,79 @@ def run_full_video_evaluation_loop(
     os.makedirs(output_dir, exist_ok=True)
     responses_path = os.path.join(output_dir, f"{tag}_responses.jsonl")
     scores_path = os.path.join(output_dir, f"{tag}_scores.jsonl")
-    
+
     if args.mode == "inference":
-        processed_ids = get_processed_ids(responses_path, "yt_id", "task_type")
+        processed_ids = get_processed_ids(responses_path, "record_id", "task_type")
         _log.info(f"Inference-only mode. Resuming from responses file. Pre-existing count: {len(processed_ids)}")
     else:
-        processed_ids = get_processed_ids(scores_path, "yt_id", "task_type")
+        processed_ids = get_processed_ids(scores_path, "record_id", "task_type")
         _log.info(f"Resuming full-video evaluation: {len(processed_ids)} tasks already scored.")
-        
+
     n_ok = n_skip = n_error = 0
-    
+
     resp_f = open(responses_path, "a", encoding="utf-8")
     score_f = open(scores_path, "a", encoding="utf-8") if args.mode != "inference" else None
-         
+
     try:
         pbar = tqdm(records, desc=f"Full Video Eval [{tag}]", leave=True, dynamic_ncols=True)
         for record in pbar:
-            yt_id = record["yt_id"]
+            record_id = record["record_id"]
             video_path = record["video_path"]
-            
+
             # Narration Task
-            if (yt_id, "narration") in processed_ids:
+            if (record_id, "narration") in processed_ids:
                 n_skip += 1
             else:
-                question_text = record["narration_question"] + NARRATION_INFERENCE_SUFFIX
-                pbar.set_postfix_str(f"Narr {yt_id}", refresh=True)
-                
+                question_text = record["narration_question"]
+                pbar.set_postfix_str(f"Narr {record_id}", refresh=True)
+
                 model_response = generate_fn(
                     video_path=video_path,
                     question_text=question_text,
-                    log_id=f"{yt_id}/narration"
+                    log_id=f"{record_id}/narration"
                 )
-                
+
                 if model_response is None:
                     n_error += 1
                 else:
                     write_jsonl(resp_f, {
-                        "yt_id": yt_id,
+                        "record_id": record_id,
+                        "yt_id": record.get("yt_id", record_id),
                         "task_type": "narration",
                         "question_text": question_text,
                         "reference_narration": record["narration_reference"],
                         "model_response": model_response
                     })
-                    
+
                     if args.mode != "inference" and score_f is not None:
-                        pbar.set_postfix_str(f"Judge Narr {yt_id}", refresh=True)
+                        pbar.set_postfix_str(f"Judge Narr {record_id}", refresh=True)
                         try:
                             score_info = judge.score_narration(
                                 reference_narration=record["narration_reference"],
                                 model_response=model_response
                             )
                             write_jsonl(score_f, {
-                                "yt_id": yt_id,
+                                "record_id": record_id,
                                 "task_type": "narration",
                                 **score_info
                             })
                             n_ok += 1
                         except Exception as e:
-                            _log.error(f"Error scoring narration for {yt_id}: {e}\n{traceback.format_exc()}")
+                            _log.error(f"Error scoring narration for {record_id}: {e}\n{traceback.format_exc()}")
                             n_error += 1
                     else:
                         n_ok += 1
-            
+
             pbar.set_postfix(ok=n_ok, skip=n_skip, err=n_error)
     finally:
         resp_f.close()
         if score_f is not None:
             score_f.close()
-            
+
     if args.mode == "inference":
         _log.info("Inference-only mode run completed. Output is recorded offline.")
         return {}
-            
+
     # Aggregate narration summary
     narration_rows = []
     if os.path.exists(scores_path):
@@ -453,7 +404,7 @@ def run_full_video_evaluation_loop(
                         narration_rows.append(row)
                 except Exception:
                     continue
-                    
+
     def avg(values):
         values = [v for v in values if v is not None]
         return round(sum(values) / len(values), 4) if values else None
@@ -478,5 +429,5 @@ def run_full_video_evaluation_loop(
     summary_path = os.path.join(output_dir, f"{tag}_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=4)
-        
+
     return summary

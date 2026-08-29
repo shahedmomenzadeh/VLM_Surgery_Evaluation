@@ -55,28 +55,11 @@ fi
 # Save models locally inside the working directory under 'hf_cache'
 export HF_HOME="$SCRIPT_DIR/hf_cache"
 
-# ── DOWNLOAD TEST DATASET ──────────────────────────────────────────────────
-log "Installing gdown for Google Drive downloads..."
-pip install gdown
-# https://drive.google.com/file/d/1wDf0F5r5YlI6IgJHBADbn8nbbm8VkIBN/view?usp=sharing
-if [ ! -d "$SCRIPT_DIR/dataset/Test" ]; then
-    log "Downloading Test split from Google Drive..."
-    gdown 1wDf0F5r5YlI6IgJHBADbn8nbbm8VkIBN --output "$SCRIPT_DIR/Test.zip"
-    log "Extracting Test.zip into dataset directory..."
-    unzip -q -o "$SCRIPT_DIR/Test.zip" -d "$SCRIPT_DIR/dataset"
-    rm -f "$SCRIPT_DIR/Test.zip"
-    log "Test dataset ready."
-else
-    log "Test dataset already exists, skipping download."
-fi
-
-# Default dataset path. Overridable via env var: DATASET_ROOT="path" ./run.sh
-# Automatically detects if there is a local 'dataset' folder in the script directory, otherwise falls back to D:/
-if [ -d "$SCRIPT_DIR/dataset" ]; then
-    DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/dataset}"
-else
-    DATASET_ROOT="${DATASET_ROOT:-D:/programming/MSc_project/Video pipeline/dataset}"
-fi
+# ── EVALUATION DATASET ─────────────────────────────────────────────────────
+# The flat evaluation dataset (evaluation_dataset/) lives next to this script:
+# one-line JSONL records + prefixed .mp4 files, no subfolders.
+# Overridable via env var: DATASET_ROOT="path" ./run.sh
+DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/evaluation_dataset}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 MAX_FRAMES="${MAX_FRAMES:-32}"
 USE_FLASH="${USE_FLASH:-false}"

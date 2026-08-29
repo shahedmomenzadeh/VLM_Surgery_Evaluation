@@ -37,11 +37,11 @@ def parse_args():
     
     # Dataset configuration
     parser.add_argument("--dataset-root", type=str, default=None,
-                        help="Absolute path to cataract surgery VLM dataset root (optional/not required in 'judge' mode).")
+                        help="Absolute path to the flat evaluation dataset folder (evaluation_dataset/). Optional/not required in 'judge' mode.")
     parser.add_argument("--splits", type=str, nargs="+", default=["Test"], choices=["Train", "Validation", "Test"],
-                        help="Split name or names to evaluate.")
+                        help="Split name or names to evaluate (record-level 'split' field).")
     parser.add_argument("--data-level", type=str, default="clip", choices=["clip", "full", "both"],
-                        help="Data resolution level: clip (short segment), full (narration/reordering), or both.")
+                        help="Data resolution level: clip (visual_description/mcq/phase, 989 records), full (narration, 15 records), or both.")
     
     # Inference parameters
     parser.add_argument("--output-dir", type=str, default="./results",
@@ -276,10 +276,10 @@ def main():
     if args.dry_run:
         log.info("Dry-run mode activated. Printing sample records and exiting.")
         if "clip" in records and records["clip"]:
-            log.info(f"Clip sample count: {len(records['clip'])}")
+            log.info(f"Clip sample count: {len(records['clip'])} (expected 989: 293 visual_description + 486 mcq + 210 phase)")
             log.info(f"Clip record sample: {records['clip'][0]}")
         if "full" in records and records["full"]:
-            log.info(f"Full-video sample count: {len(records['full'])}")
+            log.info(f"Full-video sample count: {len(records['full'])} (expected 15 narration)")
             log.info(f"Full-video record sample: {records['full'][0]}")
         sys.exit(0)
         

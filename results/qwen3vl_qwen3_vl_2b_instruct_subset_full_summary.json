@@ -1,0 +1,13 @@
+{
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "tag": "qwen3vl_qwen3_vl_2b_instruct_subset",
+    "narration": {
+        "n_samples": 2,
+        "avg_overall_score": 0.0,
+        "avg_normalized_score": 0.0,
+        "avg_step_coverage": 0.0,
+        "avg_chronological_accuracy": 0.0,
+        "avg_visual_technical_accuracy": 0.0,
+        "avg_narrative_flow": 1.0
+    }
+}

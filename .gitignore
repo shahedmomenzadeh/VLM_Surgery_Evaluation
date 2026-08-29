@@ -51,4 +51,13 @@ test_endpoint.py
 run_temp.sh
 test_lingshu_kaggle.sh
 swap_splits.py
-mage-vl-test.sh
+mage-vl-test.
+
+Archived Results/
+
+evaluation_dataset/*
+hf_upload
+
+build_evaluation_dataset.py
+make_hf_viewer_package.py
+upload_to_hf.py

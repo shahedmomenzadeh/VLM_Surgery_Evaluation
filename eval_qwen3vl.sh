@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 1. CONFIGURATION OVERRIDES ─────────────────────────────────────────────
 MODEL_ID="${MODEL_ID:-Qwen/Qwen3-VL-2B-Instruct}"
-DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/dataset}"
+DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/evaluation_dataset}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 SPLIT="${SPLIT:-Test}"
 DATA_LEVEL="${DATA_LEVEL:-both}"         # clip, full, or both

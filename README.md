@@ -6,8 +6,10 @@ A framework for benchmarking Vision-Language Models (VLMs) on cataract surgery v
 
 This project evaluates how well VLMs understand cataract surgery videos across two granularities:
 
-- **Clip-level**: Short surgical video segments evaluating open-ended visual descriptions, multi-choice surgical questions (step, instrument, visual cue), and phase recognition against a fixed 13-phase ontology.
-- **Full-video level**: Complete surgery recordings requiring comprehensive procedural narration.
+- **Clip-level**: 989 short surgical video segments covering open-ended visual descriptions (293), multiple-choice surgical questions (486 MCQ: step / instrument / visual cue), and four phase-understanding tasks (210: boundary detection, temporal localization, timestamp→phase, contextual phase recognition).
+- **Full-video level**: 15 complete surgery recordings requiring comprehensive procedural narration.
+
+Each record embeds its full task instruction — including the strict JSON `{"explanation", "answer"}` output contract — so the pipeline passes questions through as-is and expects **one response per record** (no CoT/direct variants).
 
 Currently supported model families:
 - [HuluMed](https://huggingface.co/ZJU-AI4H/Hulu-Med-4B) (ZJU-AI4H)
@@ -15,44 +17,33 @@ Currently supported model families:
 - [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B) (Qwen2.5-VL based medical MLLM)
 - [Mage-VL](https://huggingface.co/microsoft/Mage-VL) (Microsoft, codec-native video MLLM)
 
-## VLM Task Categories & Prompting Strategies
-
-Every task is evaluated under two complementary prompting strategies:
-- **Direct**: Model provides the final answer or direct description without reasoning preamble.
-- **Chain-of-Thought (CoT)**: Model generates step-by-step clinical observations and reasoning before concluding with the final answer.
-
 ---
 
-### 1. Clip-Level Visual Description (YouTube & Phase Tracks)
-- **Source**: First line of `clip_*_sft.jsonl`.
-- **Description**: Open-ended visual description of surgical actions, instruments, and anatomical structures.
-- **Evaluation**: **LLM-as-a-judge** (0–5 scale rubric) comparing the model's description against ground-truth clinical descriptions.
+## Dataset
 
-### 2. Clip-Level Multiple-Choice Questions (YouTube Track)
-- **Source**: `clip_*_grpo.jsonl` (3 MCQs per clip).
-- **Questions**: Step Identification, Instrument Identification, and Visual Observation / Cue.
-- **Evaluation**: **Deterministic scoring** (exact option match `A`–`D`).
+The evaluation set is the flat `evaluation_dataset/` folder: **1004 one-line JSONL records** + **518 prefixed .mp4 videos** (Test split only, ~3.45 GB). No subfolders — every `video` field is a relative filename in the same folder.
 
-### 3. Clip-Level Phase Recognition (Phase Track `PH_*`)
-- **Source**: `clip_*_grpo.jsonl` (1 question per phase clip).
-- **Questions**: Identifies surgical phase against the 13-phase cataract ontology (`P01`–`P13`).
-- **Evaluation**: **Deterministic scoring** (exact phase match `P01`–`P13`).
-
-### 4. Full-Video Procedural Narration
-- **Source**: `full_video_sft.jsonl`.
-- **Description**: Flowing, chronological narration of the complete uncut surgical procedure.
-- **Evaluation**: **LLM-as-a-judge** across 4 clinical dimensions (0–5 each: Step Coverage, Chronological Accuracy, Visual/Technical Accuracy, Narrative Flow) plus an Overall Score.
-
----
-
-## Evaluation Metrics Summary
-
-| Task Category | Prompt Variants | Evaluation Method | Metric / Scale |
+| Task category | Question types | Records | Scoring |
 |---|---|---|---|
-| **Visual Description** | Direct, CoT | LLM-as-a-judge | 0–5 Clinical Rubric (Normalized 0–1) |
-| **YouTube MCQs** (Step, Instrument, Visual Cue) | Direct, CoT | Deterministic | Exact Match (0 or 1) |
-| **Phase Recognition** (`P01`–`P13`) | Direct, CoT | Deterministic | Exact Match (0 or 1) |
-| **Full-Video Narration** | Standard | LLM-as-a-judge | 5 Dimensions (0–5 scale each) |
+| **Visual description** | `visual_description` | 293 | LLM judge 0–5 (/5) |
+| **MCQ** (YouTube) | `step_identification`, `instrument_identification`, `visual_observation` | 486 | Deterministic exact letter match (0/1) |
+| **Phase understanding** | `boundary_detection` (49), `temporal_localization` (54), `timestamp_to_phase` (47), `contextual_phase_recognition` (60) | 210 | Deterministic: `exp(-|Δt|/1.5)`, interval IoU, phase-id exact match + format bonus |
+| **Narration** (full video) | `narration` | 15 | LLM judge 5 dimensions 0–5 (/5) |
+
+### Deterministic rewards
+
+- **MCQ and phase identification**: `R_task = 1` if normalized predicted answer == gold (`A`–`D` or `P01`–`P13`), else 0.
+- **Boundary detection** (τ = 1.5 s): `R_task = exp(-|t_pred - t_gt| / 1.5)`.
+- **Temporal localization**: `R_task = IoU([s_pred,e_pred], [s_gt,e_gt])`.
+- **Format bonus (phase tasks only)**: `R_fmt = 1` if strict JSON with exactly `{explanation, answer}` else 0; `R_total = R_task + 0.05 * R_fmt` (max 1.05).
+- Answers are parsed from the JSON `answer` key; regex / LLM-extractor fallbacks are applied for malformed outputs (format bonus withheld).
+
+### LLM-judge rewards
+
+- **Visual description**: single integer 0–5 against the reference description (actions, instruments, anatomy, factuality). Normalized score = score / 5.
+- **Narration**: five integer 0–5 dimensions (`step_coverage`, `chronological_accuracy`, `visual_technical_accuracy`, `narrative_flow`, `overall_score`). Normalized = overall / 5.
+
+See `evaluation_dataset/README.md` for the full dataset card (schemas, metadata whitelist, naming, usage).
 
 ---
 
@@ -60,16 +51,19 @@ Every task is evaluated under two complementary prompting strategies:
 
 ```
 .
+├── evaluation_dataset/      # Flat evaluation set: 1004 one-line JSONL + 518 .mp4 + README
 ├── main.py                 # CLI entry point and orchestrator
-├── dataset_loader.py       # Loads clip-level and full-video records
-├── prompts.py              # All inference and judge prompt templates
-├── llm_judge.py            # LLM judge scoring and deterministic metric computation
+├── dataset_loader.py       # Loads clip-level (989) and full-video (15) records from the flat set
+├── prompts.py              # Extractors + LLM judge prompt templates
+├── llm_judge.py            # LLM judge scoring + deterministic metrics (MCQ/boundary/IoU/phase-id)
+├── fairness_experiment.py  # Repeated LLM-judge scoring stability experiment
 ├── hulumed_inference.py    # HuluMed model inference pipeline
 ├── qwen3VL_inference.py    # Qwen3-VL model inference pipeline
 ├── lingshu_inference.py    # Lingshu-7B / Qwen2.5-VL inference pipeline
 ├── mage_vl_inference.py    # Mage-VL inference pipeline (frames & codec backends)
 ├── run.sh                  # Environment setup and execution script
 ├── eval_all.sh             # Automated offline judge runner over all response files
+├── run_fairness.sh         # Automated judge fairness & consistency experiment runner
 └── results/                # Generated responses, scores, and summaries
 ```
 
@@ -91,7 +85,7 @@ python main.py \
     --mode all \
     --model-family qwen3vl \
     --model-id Qwen/Qwen3-VL-2B-Instruct \
-    --dataset-root ./dataset \
+    --dataset-root ./evaluation_dataset \
     --data-level both \
     --output-dir ./results \
     --max-frames 32
@@ -104,6 +98,8 @@ python main.py \
 | `all` | Run inference and immediately judge responses |
 | `inference` | Generate responses only (for offline judging later) |
 | `judge` | Grade pre-generated responses offline |
+
+Expected response counts for a complete run: **989 clip-level** + **15 full-video** = **1004 responses**.
 
 ### Offline Judging
 
@@ -122,11 +118,24 @@ To grade every `*_responses.jsonl` file found in the output directory in one sho
 ./eval_all.sh
 ```
 
+### Judge Fairness & Stability Experiment
+
+To evaluate the consistency and stability of the LLM judge across repeated scorings of the exact same model responses:
+
+```bash
+# Run fairness experiment on a specific model (k=3 repetitions)
+bash run_fairness.sh --tag qwen3vl_qwen3_vl_2b_instruct --k 3
+
+# Auto-scan and run fairness on all models in results/
+bash run_fairness.sh --k 3 --output-dir ./results
+```
+
 ---
 
 ## Output Format
 
-The pipeline produces three output files per evaluation run:
+The pipeline produces three output files per evaluation run (one response per record):
 - `*_responses.jsonl` - Raw model responses with reference data and prompts.
-- `*_scores.jsonl` - Per-task scores, normalized accuracies, and judge justifications.
-- `*_summary.json` - Aggregated metrics across all task categories and prompting modes.
+- `*_scores.jsonl` - Per-task scores, normalized accuracies, and judge justifications (+ `task_score` / `format_valid` / `format_bonus` for phase tasks).
+- `*_summary.json` - Aggregated metrics across all task categories.
+- `*_fairness_summary.json` - Quantified judge stability metrics (CV, perfect consistency rate, per-dimension std).

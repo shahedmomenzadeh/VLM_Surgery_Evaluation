@@ -8,7 +8,9 @@ import json
 import time
 import argparse
 import logging
+import threading
 import statistics
+import concurrent.futures
 from collections import defaultdict
 
 from tqdm import tqdm
@@ -33,15 +35,17 @@ def parse_args():
                         help="Model tag, e.g. 'qwen3vl_qwen3_vl_8b_instruct' (no _clip/_full suffix).")
     parser.add_argument("--k", type=int, default=3,
                         help="Number of repeated judge runs per response.")
+    parser.add_argument("-w", "--num-workers", type=int, default=1,
+                        help="Number of concurrent judge worker threads (default: 1).")
     parser.add_argument("--output-dir", type=str, default="./results",
                         help="Directory holding <tag>_clip_responses.jsonl / <tag>_full_responses.jsonl.")
-    parser.add_argument("--judge-base-url", type=str, default="https://openrouter.ai/api/v1")
-    parser.add_argument("--judge-model", type=str, default="openai/gpt-oss-120b:free")
+    parser.add_argument("--judge-base-url", type=str, default="http://localhost:8000/v1")
+    parser.add_argument("--judge-model", type=str, default="qwen3.8-max")
     parser.add_argument("--judge-api-key-env", type=str, default="PROVIDER_API_KEY")
     parser.add_argument("--judge-retries", type=int, default=3)
     parser.add_argument("--delay", type=float, default=1.0,
-                        help="Sleep seconds between judge API calls to avoid rate limits.")
-    parser.add_argument("--skip-clip", action="store_true", help="Skip clip MCQ scoring.")
+                        help="Sleep seconds between judge API calls per thread to avoid rate limits.")
+    parser.add_argument("--skip-clip", action="store_true", help="Skip clip visual description scoring.")
     parser.add_argument("--skip-narration", action="store_true", help="Skip narration scoring.")
     return parser.parse_args()
 
@@ -65,6 +69,26 @@ def load_jsonl(path: str) -> list[dict]:
 def write_jsonl(fh, record: dict) -> None:
     fh.write(json.dumps(record) + "\n")
     fh.flush()
+
+
+def is_valid_score(row: dict) -> bool:
+    """
+    Checks if a scored response record is valid.
+    Filters out failed judge calls and fallback placeholders so they can be retried.
+    """
+    if not isinstance(row, dict):
+        return False
+    method = str(row.get("method", ""))
+    justification = str(row.get("justification", ""))
+    if method in ("llm_judge_failed", "llm_judge_fallback"):
+        return False
+    if "All LLM judge attempts failed" in justification or "LLM client not initialized" in justification:
+        return False
+    if "score" in row and row["score"] is None:
+        return False
+    if "overall_score" in row and row["overall_score"] is None:
+        return False
+    return True
 
 
 def r4(x: float) -> float:
@@ -126,45 +150,94 @@ def run_clip_fairness(judge, args) -> dict:
         log.warning(f"No clip responses with reward_type='llm_judge' in {resp_path}. Skipping clip fairness.")
         return {"n_samples": 0}
 
-    completed = set()
-    for row in load_jsonl(out_path):
-        completed.add((row.get("sample_id"), row.get("run_index")))
+    # Load existing valid scores and prune failed records from disk
+    existing_rows = load_jsonl(out_path)
+    valid_scores = {}
+    dirty = False
+    for row in existing_rows:
+        key = (row.get("sample_id"), row.get("run_index"))
+        if is_valid_score(row):
+            valid_scores[key] = row
+        else:
+            dirty = True
 
-    log.info(f"Clip fairness: {len(records)} samples x {args.k} runs, {len(completed)} already done.")
+    if dirty or len(valid_scores) < len(existing_rows):
+        log.info(f"Found {len(existing_rows) - len(valid_scores)} invalid/failed clip score record(s) in {out_path}. Pruning for retry...")
+        tmp_path = f"{out_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            for row in valid_scores.values():
+                write_jsonl(f, row)
+        os.replace(tmp_path, out_path)
+
+    tasks = []
+    for record in records:
+        resp_id = record.get("record_id") or record.get("clip_id")
+        sample_id = f"{resp_id}::{record['question_type']}"
+        for run_idx in range(args.k):
+            if (sample_id, run_idx) not in valid_scores:
+                tasks.append((record, run_idx))
+
+    total_needed = len(records) * args.k
+    log.info(f"Clip fairness: {len(records)} samples x {args.k} runs = {total_needed} tasks ({len(valid_scores)} cached, {len(tasks)} pending/retrying). Concurrency: {args.num_workers} worker(s).")
+    
     n_calls = 0
+    file_lock = threading.Lock()
 
-    with open(out_path, "a", encoding="utf-8") as f:
-        pbar = tqdm(records, desc=f"Clip Fairness [{args.tag}]", leave=True, dynamic_ncols=True)
-        for record in pbar:
-            sample_id = f"{record['clip_id']}::{record['question_type']}"
-            for run_idx in range(args.k):
-                if (sample_id, run_idx) in completed:
-                    continue
-                try:
-                    result = judge.score_clip_llm_judge(
-                        question_text=record["question_text"],
-                        correct_answer=record["correct_answer"],
-                        reference_reasoning=record.get("reference_reasoning", ""),
-                        model_response=record["model_response"]
-                    )
-                except Exception as e:
-                    log.error(f"Judge call failed for {sample_id} run {run_idx}: {e}")
-                    continue
-                write_jsonl(f, {
-                    "sample_id": sample_id,
-                    "clip_id": record["clip_id"],
-                    "question_type": record["question_type"],
-                    "correct_answer": record["correct_answer"],
-                    "run_index": run_idx,
-                    "score": result["score"],
-                    "extracted_answer": result.get("extracted_answer", ""),
-                    "justification": result.get("justification", "")
-                })
-                n_calls += 1
-                time.sleep(args.delay)
+    def process_task(task_item):
+        nonlocal n_calls
+        record, run_idx = task_item
+        resp_id = record.get("record_id") or record.get("clip_id")
+        sample_id = f"{resp_id}::{record['question_type']}"
+        try:
+            ref_desc = record.get("reference_description") or record.get("reference_reasoning", "")
+            result = judge.score_description(
+                reference_description=ref_desc,
+                model_response=record["model_response"]
+            )
+        except Exception as e:
+            log.error(f"Judge call failed for {sample_id} run {run_idx}: {e}")
+            return None
+
+        if not is_valid_score(result):
+            log.warning(f"Judge returned invalid/failed response for {sample_id} run {run_idx}: {result.get('justification', 'unknown error')}. Will retry on next run.")
+            return None
+
+        out_record = {
+            "sample_id": sample_id,
+            "record_id": resp_id,
+            "question_type": record["question_type"],
+            "correct_answer": record.get("correct_answer", ""),
+            "run_index": run_idx,
+            "score": result["score"],
+            "extracted_answer": result.get("extracted_answer", ""),
+            "justification": result.get("justification", "")
+        }
+
+        with file_lock:
+            with open(out_path, "a", encoding="utf-8") as f:
+                write_jsonl(f, out_record)
+            valid_scores[(sample_id, run_idx)] = out_record
+            n_calls += 1
+
+        if args.delay > 0:
+            time.sleep(args.delay)
+
+        return out_record
+
+    if tasks:
+        if args.num_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.num_workers) as executor:
+                futures = [executor.submit(process_task, t) for t in tasks]
+                with tqdm(total=len(tasks), desc=f"Clip Fairness [{args.tag}]", dynamic_ncols=True) as pbar:
+                    for future in concurrent.futures.as_completed(futures):
+                        pbar.update(1)
+        else:
+            with tqdm(tasks, desc=f"Clip Fairness [{args.tag}]", dynamic_ncols=True) as pbar:
+                for t in pbar:
+                    process_task(t)
 
     per_sample = {}
-    for row in load_jsonl(out_path):
+    for row in valid_scores.values():
         sid = row["sample_id"]
         per_sample.setdefault(sid, {"scores": [], "answers": []})
         per_sample[sid]["scores"].append(row["score"])
@@ -214,40 +287,90 @@ def run_narration_fairness(judge, args) -> dict:
         log.warning(f"No narration responses in {resp_path}. Skipping narration fairness.")
         return {"n_samples": 0}
 
-    completed = set()
-    for row in load_jsonl(out_path):
-        completed.add((row.get("sample_id"), row.get("run_index")))
+    # Load existing valid scores and prune failed records from disk
+    existing_rows = load_jsonl(out_path)
+    valid_scores = {}
+    dirty = False
+    for row in existing_rows:
+        key = (row.get("sample_id"), row.get("run_index"))
+        if is_valid_score(row):
+            valid_scores[key] = row
+        else:
+            dirty = True
 
-    log.info(f"Narration fairness: {len(records)} samples x {args.k} runs, {len(completed)} already done.")
+    if dirty or len(valid_scores) < len(existing_rows):
+        log.info(f"Found {len(existing_rows) - len(valid_scores)} invalid/failed narration score record(s) in {out_path}. Pruning for retry...")
+        tmp_path = f"{out_path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            for row in valid_scores.values():
+                write_jsonl(f, row)
+        os.replace(tmp_path, out_path)
+
+    tasks = []
+    for record in records:
+        resp_id = record.get("record_id") or record.get("yt_id")
+        sample_id = resp_id
+        for run_idx in range(args.k):
+            if (sample_id, run_idx) not in valid_scores:
+                tasks.append((record, run_idx))
+
+    total_needed = len(records) * args.k
+    log.info(f"Narration fairness: {len(records)} samples x {args.k} runs = {total_needed} tasks ({len(valid_scores)} cached, {len(tasks)} pending/retrying). Concurrency: {args.num_workers} worker(s).")
+    
     n_calls = 0
+    file_lock = threading.Lock()
 
-    with open(out_path, "a", encoding="utf-8") as f:
-        pbar = tqdm(records, desc=f"Narr Fairness [{args.tag}]", leave=True, dynamic_ncols=True)
-        for record in pbar:
-            sample_id = record["yt_id"]
-            for run_idx in range(args.k):
-                if (sample_id, run_idx) in completed:
-                    continue
-                try:
-                    result = judge.score_narration(
-                        reference_narration=record.get("reference_narration", ""),
-                        model_response=record["model_response"]
-                    )
-                except Exception as e:
-                    log.error(f"Judge call failed for {sample_id} run {run_idx}: {e}")
-                    continue
-                write_jsonl(f, {
-                    "sample_id": sample_id,
-                    "yt_id": record["yt_id"],
-                    "run_index": run_idx,
-                    **{d: result[d] for d in NARRATION_DIMS},
-                    "justification": result.get("justification", "")
-                })
-                n_calls += 1
-                time.sleep(args.delay)
+    def process_task(task_item):
+        nonlocal n_calls
+        record, run_idx = task_item
+        resp_id = record.get("record_id") or record.get("yt_id")
+        sample_id = resp_id
+        try:
+            result = judge.score_narration(
+                reference_narration=record.get("reference_narration", ""),
+                model_response=record["model_response"]
+            )
+        except Exception as e:
+            log.error(f"Judge call failed for {sample_id} run {run_idx}: {e}")
+            return None
+
+        if not is_valid_score(result):
+            log.warning(f"Judge returned invalid/failed response for {sample_id} run {run_idx}: {result.get('justification', 'unknown error')}. Will retry on next run.")
+            return None
+
+        out_record = {
+            "sample_id": sample_id,
+            "record_id": resp_id,
+            "run_index": run_idx,
+            **{d: result[d] for d in NARRATION_DIMS},
+            "justification": result.get("justification", "")
+        }
+
+        with file_lock:
+            with open(out_path, "a", encoding="utf-8") as f:
+                write_jsonl(f, out_record)
+            valid_scores[(sample_id, run_idx)] = out_record
+            n_calls += 1
+
+        if args.delay > 0:
+            time.sleep(args.delay)
+
+        return out_record
+
+    if tasks:
+        if args.num_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.num_workers) as executor:
+                futures = [executor.submit(process_task, t) for t in tasks]
+                with tqdm(total=len(tasks), desc=f"Narr Fairness [{args.tag}]", dynamic_ncols=True) as pbar:
+                    for future in concurrent.futures.as_completed(futures):
+                        pbar.update(1)
+        else:
+            with tqdm(tasks, desc=f"Narr Fairness [{args.tag}]", dynamic_ncols=True) as pbar:
+                for t in pbar:
+                    process_task(t)
 
     per_sample = defaultdict(lambda: defaultdict(list))
-    for row in load_jsonl(out_path):
+    for row in valid_scores.values():
         for d in NARRATION_DIMS:
             per_sample[row["sample_id"]][d].append(row[d])
 
@@ -280,7 +403,7 @@ def print_summary(summary: dict) -> None:
 
     clip = summary.get("clip")
     if clip and clip.get("n_samples", 0) > 0:
-        print("\n  CLIP MCQ (0-3):")
+        print("\n  CLIP VISUAL DESCRIPTION (0-5):")
         print(f"    Samples                 : {clip['n_samples']}")
         print(f"    Judge calls made        : {clip['judge_calls_made']}")
         print(f"    Avg score               : {clip['avg_score']}")
@@ -308,8 +431,11 @@ def print_summary(summary: dict) -> None:
 def main():
     args = parse_args()
 
-    api_key = os.environ.get(args.judge_api_key_env, "")
-    if not api_key:
+    api_key = os.environ.get(args.judge_api_key_env, "").strip()
+    # Local self-hosted endpoints (e.g. http://localhost:8000/v1) need no API key
+    # — LLMJudge substitutes a placeholder key for loopback addresses.
+    local_endpoint = "localhost" in args.judge_base_url or "127.0.0.1" in args.judge_base_url
+    if not api_key and not local_endpoint:
         log.error(f"Judge API key env var '{args.judge_api_key_env}' is not set.")
         sys.exit(1)
 
@@ -317,10 +443,11 @@ def main():
         base_url=args.judge_base_url,
         api_key=api_key,
         model=args.judge_model,
-        retries=args.judge_retries
+        retries=args.judge_retries,
+        num_workers=args.num_workers
     )
 
-    log.info(f"Tag: {args.tag} | k={args.k} | judge={args.judge_model} | output={args.output_dir}")
+    log.info(f"Tag: {args.tag} | k={args.k} | workers={args.num_workers} | judge={args.judge_model} | output={args.output_dir}")
 
     summary = {
         "tag": args.tag,

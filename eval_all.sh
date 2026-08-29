@@ -30,7 +30,9 @@ JUDGE_API_KEY_ENV="${JUDGE_API_KEY_ENV:-PROVIDER_API_KEY}"
 NUM_WORKERS="${NUM_WORKERS:-1}"
 
 # Expected test dataset thresholds for complete runs
-EXPECTED_CLIP_COUNT=1940
+# 989 clip-level records (293 visual_description + 486 mcq + 210 phase),
+# each producing ONE response (explanation format, no CoT/direct variants).
+EXPECTED_CLIP_COUNT=989
 EXPECTED_FULL_COUNT=15
 
 # Parse optional command line arguments

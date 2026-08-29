@@ -1,74 +1,10 @@
 # prompts.py
 # Centralized prompt configurations for cataract surgery VLM evaluation
-
-# =============================================================================
-# INFERENCE SUFFIXES
-# =============================================================================
-
-# --- 1. Clip-Level Multiple-Choice Questions (YouTube MCQs) ---
-
-# Suffix for CoT reasoning (reasoning trace before final letter)
-CLIP_MCQ_COT_SUFFIX = (
-    "\n\nInstructions: Think through the question step-by-step based on what "
-    "you observe in the video. Be concise and do not repeat yourself. "
-    "Conclude with your final answer on a new line in the format: ANSWER: <letter>\n"
-    "Stop generating immediately after providing the answer."
-)
-# Backward-compatible alias
-CLIP_INFERENCE_SUFFIX = CLIP_MCQ_COT_SUFFIX
-
-# Suffix for Direct answering (only the option letter)
-CLIP_MCQ_DIRECT_SUFFIX = (
-    "\n\nInstructions: Answer the question by outputting only the letter of the correct option "
-    "(e.g., A, B, C, or D) on a new line in the format: ANSWER: <letter>\n"
-    "Provide no reasoning or extra text, and stop generating immediately."
-)
-# Backward-compatible alias
-CLIP_DIRECT_INFERENCE_SUFFIX = CLIP_MCQ_DIRECT_SUFFIX
-
-
-# --- 2. Phase Recognition (Phase Track Ontology P01-P13) ---
-
-# Suffix for CoT reasoning
-PHASE_COT_SUFFIX = (
-    "\n\nInstructions: Think through the video step-by-step based on visible evidence from the surgical ontology. "
-    "Conclude with your final answer on a new line in the format: Final answer: PXX\n"
-    "Stop generating immediately after providing the answer."
-)
-
-# Suffix for Direct answering
-PHASE_DIRECT_SUFFIX = (
-    "\n\nInstructions: Identify the surgical phase from the surgical ontology. "
-    "Output only the final ontology ID on a new line in the format: Final answer: PXX\n"
-    "Provide no reasoning or extra text, and stop generating immediately."
-)
-
-
-# --- 3. Visual Description (YouTube & Phase Track Line 1) ---
-
-# Suffix for Direct Visual Description
-DESCRIPTION_DIRECT_SUFFIX = (
-    "\n\nInstructions: Provide a concise, detailed, and factual description of the visible surgical actions, "
-    "instruments, and anatomical changes in this clip. Focus strictly on what is directly visible. "
-    "Do not include step-by-step reasoning preamble or meta-commentary."
-)
-
-# Suffix for Chain-of-Thought Visual Description
-DESCRIPTION_COT_SUFFIX = (
-    "\n\nInstructions: Analyze this clip step-by-step. First, systematically observe and identify all visible "
-    "instruments and anatomical structures. Next, explain each surgical maneuver observed chronologically. "
-    "Finally, synthesize a comprehensive, cohesive summary description of the surgical activity."
-)
-
-
-# --- 4. Full-Video Narration ---
-
-# Suffix to append to full-video narration questions
-NARRATION_INFERENCE_SUFFIX = (
-    "\n\nInstructions: Describe the procedure as a single, flowing chronological narration of "
-    "what you observe happening, step by step. Be concise, precise, and avoid repeating the same actions or getting stuck in loops. "
-    "Do not include raw timestamps. Only describe the events you clearly see, and stop generating once the video concludes."
-)
+#
+# NOTE: The evaluation dataset embeds the full task instructions (including the
+# strict JSON {"explanation", "answer"} output contract) inside each record's
+# prompt/messages. The pipeline therefore passes question text through as-is
+# and no longer appends inference suffixes (no CoT/direct variants).
 
 
 # =============================================================================
@@ -171,16 +107,24 @@ Score the model's narration."""
 
 
 # =============================================================================
-# DETERMINISTIC FALLBACK EXTRACTORS
+# DETERMINISTIC FALLBACK EXTRACTORS (JSON-aware)
 # =============================================================================
 
-CLIP_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final answer letter from a model's response to a multiple-choice question.
-The model was instructed to output 'ANSWER: <letter>'. If it used a slightly different format (e.g., 'ANSWER:A', 'Answer is A', 'A.', 'Answer - A'), extract the letter.
+# Every dataset task instructs the model to respond with a JSON object
+# containing exactly two keys: "explanation" (1-3 sentences) and "answer"
+# (task-specific). The LLM extractor fallback below is only invoked when
+# regex/JSON parsing fails; it must only extract the explicitly stated answer.
+
+# MCQ (letter A-D from "answer" key)
+CLIP_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final answer from a model's response to a surgical multiple-choice question.
+The model was instructed to respond with a JSON object: {"explanation": "...", "answer": "<letter A-D>"}.
 
 Rules:
+- Prefer the value of the "answer" key from a JSON object if present.
+- Otherwise, extract an explicitly stated final answer letter (e.g., 'ANSWER: A', 'Answer is A', 'A.', 'Answer - A').
 - Fix structured formatting misalignments (e.g., missing spaces, unusual delimiters).
-- CRITICAL: Do NOT attempt to deduce the answer by reading the reasoning trace. ONLY extract the letter if it is explicitly provided as a final answer statement.
-- If the model did not provide a final answer statement, return 'NONE'.
+- CRITICAL: Do NOT attempt to deduce the answer by reading the reasoning/explanation. ONLY extract the letter if it is explicitly provided as the final answer.
+- If the model did not provide a final answer, return 'NONE'.
 
 Respond ONLY with a JSON object — no extra text, no markdown fences:
 {
@@ -193,12 +137,15 @@ CLIP_EXTRACTOR_USER_TEMPLATE = """Model response:
 Extract the final answer letter."""
 
 
-PHASE_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final phase identifier (P01 to P13) from a model's response to a cataract surgery phase recognition question.
-The model was instructed to output 'Final answer: PXX' or 'ANSWER: PXX'. If it used a slightly different format (e.g., 'P09', 'Answer: P09', 'Phase is P09'), extract the phase ID.
+# Phase identification (P01-P13 from "answer" key)
+PHASE_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting the final phase identifier (P01 to P13) from a model's response to a cataract surgery phase question.
+The model was instructed to respond with a JSON object: {"explanation": "...", "answer": {"phase_id": "PXX", "phase_name": "..."}}.
 
 Rules:
-- Only extract a valid phase ID in the set P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13.
-- CRITICAL: Do NOT attempt to deduce the phase by reading the reasoning trace. ONLY extract the phase if it is explicitly stated as the final answer.
+- Prefer the value of "answer"."phase_id" from a JSON object if present.
+- Otherwise, extract an explicitly stated final phase ID (e.g., 'P09', 'Answer: P09', 'Phase is P09').
+- Only extract a valid phase ID in the set P01..P13.
+- CRITICAL: Do NOT attempt to deduce the phase by reading the reasoning/explanation. ONLY extract the phase if it is explicitly stated as the final answer.
 - If no valid phase statement is found, return 'NONE'.
 
 Respond ONLY with a JSON object — no extra text, no markdown fences:
@@ -210,3 +157,46 @@ PHASE_EXTRACTOR_USER_TEMPLATE = """Model response:
 {model_response}
 
 Extract the final phase identifier."""
+
+
+# Boundary detection (single clip-local timestamp from "answer" key)
+BOUNDARY_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting a clip-local timestamp (in seconds) from a model's response to a surgical boundary detection question.
+The model was instructed to respond with a JSON object: {"explanation": "...", "answer": {"timestamp": <float seconds>}}.
+
+Rules:
+- Prefer the value of "answer"."timestamp" from a JSON object if present.
+- Otherwise, extract an explicitly stated final timestamp (e.g., 'timestamp: 7.7', '7.7 s', 'answer 7.7').
+- If the timestamp appears inside a time range, extract only the value requested (start boundary).
+- CRITICAL: Do NOT deduce the timestamp from the reasoning text. ONLY extract it if explicitly stated as the final answer.
+- If no timestamp is found, return 'NONE'.
+
+Respond ONLY with a JSON object — no extra text, no markdown fences:
+{
+  "extracted_answer": "<float seconds, or 'NONE'>"
+}"""
+
+BOUNDARY_EXTRACTOR_USER_TEMPLATE = """Model response:
+{model_response}
+
+Extract the final timestamp (seconds)."""
+
+
+# Temporal localization (start & end interval from "answer" key)
+INTERVAL_EXTRACTOR_SYSTEM_PROMPT = """You are a strict text parser extracting a clip-local time interval (start and end in seconds) from a model's response to a surgical temporal localization question.
+The model was instructed to respond with a JSON object: {"explanation": "...", "answer": {"start": <float>, "end": <float>}}.
+
+Rules:
+- Prefer the "start" and "end" values from the "answer" key of a JSON object if present.
+- Otherwise, extract an explicitly stated final interval (e.g., 'start: 9.4, end: 13.8', '[9.4, 13.8]', '9.4-13.8 s').
+- CRITICAL: Do NOT deduce the interval from the reasoning text. ONLY extract it if explicitly stated as the final answer.
+- If no interval is found, return 'NONE'.
+
+Respond ONLY with a JSON object — no extra text, no markdown fences:
+{
+  "extracted_answer": {"start": <float>, "end": <float>} or "NONE"
+}"""
+
+INTERVAL_EXTRACTOR_USER_TEMPLATE = """Model response:
+{model_response}
+
+Extract the final interval (start and end seconds)."""

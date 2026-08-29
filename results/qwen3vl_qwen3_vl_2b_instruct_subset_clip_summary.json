@@ -1,0 +1,40 @@
+{
+    "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+    "tag": "qwen3vl_qwen3_vl_2b_instruct_subset",
+    "total_scored": 17,
+    "overall_normalised_accuracy": 0.4194,
+    "per_type": {
+        "instrument_identification": {
+            "n_samples": 2,
+            "avg_normalised_score": 1.0
+        },
+        "step_identification": {
+            "n_samples": 2,
+            "avg_normalised_score": 0.0
+        },
+        "visual_description": {
+            "n_samples": 3,
+            "avg_normalised_score": 0.2
+        },
+        "visual_observation": {
+            "n_samples": 2,
+            "avg_normalised_score": 1.0
+        },
+        "contextual_phase_recognition": {
+            "n_samples": 2,
+            "avg_normalised_score": 0.0476
+        },
+        "boundary_detection": {
+            "n_samples": 2,
+            "avg_normalised_score": 0.4147
+        },
+        "timestamp_to_phase": {
+            "n_samples": 2,
+            "avg_normalised_score": 0.0476
+        },
+        "temporal_localization": {
+            "n_samples": 2,
+            "avg_normalised_score": 0.7547
+        }
+    }
+}
