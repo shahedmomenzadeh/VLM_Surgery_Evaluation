@@ -37,7 +37,15 @@ def parse_args():
     
     # Dataset configuration
     parser.add_argument("--dataset-root", type=str, default=None,
-                        help="Absolute path to the flat evaluation dataset folder (evaluation_dataset/). Optional/not required in 'judge' mode.")
+                        help="Absolute path to the flat evaluation dataset folder (evaluation_dataset/) or local HF dataset folder.")
+    parser.add_argument("--hf-dataset", "--hf-repo", dest="hf_dataset", type=str, default=None,
+                        help="Hugging Face dataset repository ID (e.g., 'username/cataract_surgery_vlm_eval') to download and flatten automatically.")
+    parser.add_argument("--flatten-dir", type=str, default=None,
+                        help="Target directory to store the flattened evaluation dataset (default: ./evaluation_dataset or <dataset-root>_flattened).")
+    parser.add_argument("--copy-videos", action="store_true", default=False,
+                        help="Copy video files instead of creating symlinks/hardlinks during flattening.")
+    parser.add_argument("--hf-token", type=str, default=None,
+                        help="Hugging Face authentication token for gated/private models or datasets.")
     parser.add_argument("--splits", type=str, nargs="+", default=["Test"], choices=["Train", "Validation", "Test"],
                         help="Split name or names to evaluate (record-level 'split' field).")
     parser.add_argument("--data-level", type=str, default="clip", choices=["clip", "full", "both"],
@@ -178,10 +186,23 @@ def print_summary_comparison(model_family: str, summaries: dict):
 def main():
     args = parse_args()
     
+    # Fall back to --hf-dataset if provided
+    if args.hf_dataset and not args.dataset_root:
+        args.dataset_root = args.hf_dataset
+
     # Validate arguments for root dataset directory
     if args.mode != "judge" and not args.dry_run and not args.dataset_root:
-        log.error("Error: --dataset-root is required in 'inference' or 'all' modes.")
+        log.error("Error: --dataset-root or --hf-dataset is required in 'inference' or 'all' modes.")
         sys.exit(1)
+
+    # Resolve / flatten dataset if necessary
+    if args.dataset_root:
+        args.dataset_root = dataset_loader.ensure_flat_dataset(
+            dataset_root_or_repo=args.dataset_root,
+            flatten_dir=args.flatten_dir,
+            copy_videos=args.copy_videos,
+            token=args.hf_token or os.environ.get("HF_TOKEN")
+        )
     
     # 1. Determine tag
     if args.tag is None and args.model_id is not None:
@@ -261,7 +282,9 @@ def main():
         records["clip"] = dataset_loader.load_clip_records(
             dataset_root=args.dataset_root,
             splits=args.splits,
-            validate_videos=True
+            validate_videos=True,
+            flatten_dir=args.flatten_dir,
+            hf_token=args.hf_token or os.environ.get("HF_TOKEN")
         )
         
     if args.data_level in ("full", "both"):
@@ -269,7 +292,9 @@ def main():
         records["full"] = dataset_loader.load_full_video_records(
             dataset_root=args.dataset_root,
             splits=args.splits,
-            validate_videos=True
+            validate_videos=True,
+            flatten_dir=args.flatten_dir,
+            hf_token=args.hf_token or os.environ.get("HF_TOKEN")
         )
         
     # Handle dry-run mode

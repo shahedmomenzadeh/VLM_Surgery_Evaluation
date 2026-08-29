@@ -52,8 +52,10 @@ See `evaluation_dataset/README.md` for the full dataset card (schemas, metadata 
 ```
 .
 ├── evaluation_dataset/      # Flat evaluation set: 1004 one-line JSONL + 518 .mp4 + README
+├── flatten_dataset.py       # Downloads & flattens Hugging Face parquet format to flat dataset
+├── unit_test.sh             # Comprehensive test suite for dataset flattening and pipeline integration
 ├── main.py                 # CLI entry point and orchestrator
-├── dataset_loader.py       # Loads clip-level (989) and full-video (15) records from the flat set
+├── dataset_loader.py       # Loads clip-level (989) and full-video (15) records (with auto-flattening)
 ├── prompts.py              # Extractors + LLM judge prompt templates
 ├── llm_judge.py            # LLM judge scoring + deterministic metrics (MCQ/boundary/IoU/phase-id)
 ├── fairness_experiment.py  # Repeated LLM-judge scoring stability experiment
@@ -74,13 +76,13 @@ See `evaluation_dataset/README.md` for the full dataset card (schemas, metadata 
 ### Quick Start
 
 ```bash
-# Set your HuggingFace token for gated models
+# Set your HuggingFace token for gated models / datasets
 export HF_TOKEN="your_token_here"
 
 # Set provider API key for LLM judge (e.g., OpenRouter)
 export PROVIDER_API_KEY="your_api_key_here"
 
-# Run full evaluation (inference + judging)
+# Option A: Run evaluation using local flat dataset
 python main.py \
     --mode all \
     --model-family qwen3vl \
@@ -89,6 +91,39 @@ python main.py \
     --data-level both \
     --output-dir ./results \
     --max-frames 32
+
+# Option B: Run directly from Hugging Face Hub (auto-downloads & flattens)
+python main.py \
+    --mode inference \
+    --model-family qwen3vl \
+    --model-id Qwen/Qwen3-VL-2B-Instruct \
+    --hf-dataset shahedmomenzadeh/cataract_surgery_vlm_eval \
+    --data-level both \
+    --output-dir ./results
+```
+
+### Dataset Flattening Utility
+
+If you download the dataset from Hugging Face as Parquet files (`data/` + `videos/`), you can flatten it using `flatten_dataset.py`:
+
+```bash
+# Flatten downloaded Hugging Face folder
+python flatten_dataset.py \
+    --input-dir ./path_to_hf_download \
+    --output-dir ./evaluation_dataset
+
+# Or download from Hugging Face Hub and flatten in one step
+python flatten_dataset.py \
+    --hf-repo shahedmomenzadeh/cataract_surgery_vlm_eval \
+    --output-dir ./evaluation_dataset
+```
+
+### Running Validation Tests in WSL
+
+To verify dataset flattening, schema fidelity, video resolution, and dry-run inference:
+
+```bash
+bash unit_test.sh
 ```
 
 ### Execution Modes

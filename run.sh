@@ -58,13 +58,15 @@ export HF_HOME="$SCRIPT_DIR/hf_cache"
 # ── EVALUATION DATASET ─────────────────────────────────────────────────────
 # The flat evaluation dataset (evaluation_dataset/) lives next to this script:
 # one-line JSONL records + prefixed .mp4 files, no subfolders.
-# Overridable via env var: DATASET_ROOT="path" ./run.sh
+# Overridable via env var: DATASET_ROOT="path" HF_DATASET_REPO="repo_id" ./run.sh
 DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/evaluation_dataset}"
+HF_DATASET_REPO="${HF_DATASET_REPO:-shahedmomenzadeh/cataract_surgery_vlm_eval}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 MAX_FRAMES="${MAX_FRAMES:-32}"
 USE_FLASH="${USE_FLASH:-false}"
 
 log "Dataset Root: $DATASET_ROOT"
+log "HF Dataset Repo: $HF_DATASET_REPO"
 log "Output Directory: $OUTPUT_DIR"
 log "Max Frames: $MAX_FRAMES"
 log "Use FlashAttention-2: $USE_FLASH"

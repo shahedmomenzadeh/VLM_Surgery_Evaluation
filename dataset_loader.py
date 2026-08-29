@@ -7,16 +7,57 @@
 #       record_id, task_category, question_type, reward_type, split, track, video, metadata
 #   - clip-level categories: visual_description (llm_judge), mcq (deterministic), phase (deterministic)
 #   - full-video category: narration (llm_judge)
+#
+# Automatically detects and flattens Hugging Face format datasets (Parquet + videos/)
+# if a Hugging Face repository or Parquet dataset directory is supplied.
 
 import os
 import json
 import logging
 from pathlib import Path
+from typing import Optional, List, Dict, Any
+
+from flatten_dataset import (
+    is_flat_dataset_dir,
+    is_hf_dataset_dir,
+    flatten_hf_dataset,
+    download_hf_dataset,
+    prepare_flat_dataset
+)
 
 log = logging.getLogger("dataset_loader")
 
 CLIP_CATEGORIES = {"visual_description", "mcq", "phase"}
 FULL_CATEGORIES = {"narration"}
+
+
+def ensure_flat_dataset(
+    dataset_root_or_repo: str,
+    flatten_dir: Optional[str] = None,
+    video_dir: Optional[str] = None,
+    copy_videos: bool = False,
+    token: Optional[str] = None
+) -> str:
+    """
+    Ensures that a flat evaluation dataset directory is ready for loading.
+
+    Args:
+        dataset_root_or_repo: Path to flat folder, HF dataset folder, or HF repo ID.
+        flatten_dir: Custom target folder to store flattened dataset.
+        video_dir: Optional explicit directory containing the .mp4 videos.
+        copy_videos: If True, copies videos instead of creating links.
+        token: Hugging Face authentication token.
+
+    Returns:
+        Absolute path to the validated flat dataset directory.
+    """
+    return prepare_flat_dataset(
+        dataset_root_or_repo=dataset_root_or_repo,
+        flatten_dir=flatten_dir,
+        video_dir=video_dir,
+        copy_videos=copy_videos,
+        token=token
+    )
 
 
 def _iter_records(dataset_root: str, splits: list[str]):
@@ -65,27 +106,44 @@ def _resolve_video(dataset_root: str, video_name: str) -> str:
     return str(Path(dataset_root) / video_name)
 
 
-def load_clip_records(dataset_root: str, splits: list[str], validate_videos: bool = True) -> list[dict]:
+def load_clip_records(
+    dataset_root: str,
+    splits: list[str],
+    validate_videos: bool = True,
+    flatten_dir: Optional[str] = None,
+    video_dir: Optional[str] = None,
+    hf_token: Optional[str] = None
+) -> list[dict]:
     """
     Loads clip-level evaluation records (visual_description, mcq, phase)
-    from the flat evaluation dataset.
+    from the flat evaluation dataset. Automatically flattens HF datasets if required.
 
     Args:
-        dataset_root: Absolute path to the flat dataset folder (evaluation_dataset/).
+        dataset_root: Path to flat dataset folder, HF dataset folder, or HF repo ID.
         splits: List of splits to process, e.g., ["Test"].
         validate_videos: Whether to check that the referenced video file exists.
+        flatten_dir: Custom output folder if flattening is needed.
+        video_dir: Optional explicit directory containing the .mp4 videos.
+        hf_token: Optional Hugging Face token for downloading.
 
     Returns:
         List of dicts representing clip evaluation tasks.
     """
+    resolved_root = ensure_flat_dataset(
+        dataset_root_or_repo=dataset_root,
+        flatten_dir=flatten_dir,
+        video_dir=video_dir,
+        token=hf_token
+    )
+
     records = []
-    for jf, record in _iter_records(dataset_root, splits):
+    for jf, record in _iter_records(resolved_root, splits):
         category = record.get("task_category")
         if category not in CLIP_CATEGORIES:
             continue
 
         video_name = record.get("video", "")
-        video_abs_path = _resolve_video(dataset_root, video_name)
+        video_abs_path = _resolve_video(resolved_root, video_name)
         if validate_videos and (not video_name or not os.path.exists(video_abs_path)):
             log.warning(f"Video file not found at {video_abs_path}. Skipping {record.get('record_id')}.")
             continue
@@ -110,25 +168,43 @@ def load_clip_records(dataset_root: str, splits: list[str], validate_videos: boo
     return records
 
 
-def load_full_video_records(dataset_root: str, splits: list[str], validate_videos: bool = True) -> list[dict]:
+def load_full_video_records(
+    dataset_root: str,
+    splits: list[str],
+    validate_videos: bool = True,
+    flatten_dir: Optional[str] = None,
+    video_dir: Optional[str] = None,
+    hf_token: Optional[str] = None
+) -> list[dict]:
     """
     Loads full-video level evaluation records (narration only) from the flat dataset.
+    Automatically flattens HF datasets if required.
 
     Args:
-        dataset_root: Absolute path to the flat dataset folder (evaluation_dataset/).
+        dataset_root: Path to flat dataset folder, HF dataset folder, or HF repo ID.
         splits: List of splits to process, e.g., ["Test"].
         validate_videos: Whether to check that the full_video.mp4 exists.
+        flatten_dir: Custom output folder if flattening is needed.
+        video_dir: Optional explicit directory containing the .mp4 videos.
+        hf_token: Optional Hugging Face token for downloading.
 
     Returns:
         List of dicts containing full-video narration questions and reference answers.
     """
+    resolved_root = ensure_flat_dataset(
+        dataset_root_or_repo=dataset_root,
+        flatten_dir=flatten_dir,
+        video_dir=video_dir,
+        token=hf_token
+    )
+
     records = []
-    for jf, record in _iter_records(dataset_root, splits):
+    for jf, record in _iter_records(resolved_root, splits):
         if record.get("task_category") not in FULL_CATEGORIES:
             continue
 
         video_name = record.get("video", "")
-        video_abs_path = _resolve_video(dataset_root, video_name)
+        video_abs_path = _resolve_video(resolved_root, video_name)
         if validate_videos and (not video_name or not os.path.exists(video_abs_path)):
             log.warning(f"Video file not found at {video_abs_path}. Skipping {record.get('record_id')}.")
             continue

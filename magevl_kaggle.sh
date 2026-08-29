@@ -21,10 +21,10 @@ MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2048}"
 VIDEO_BACKEND="${VIDEO_BACKEND:-frames}"     # frames or codec
 SPLIT="Test"
 
-# Google Drive file ID for Test.zip
-DRIVE_FILE_ID="${DRIVE_FILE_ID:-1wDf0F5r5YlI6IgJHBADbn8nbbm8VkIBN}"
+# HuggingFace Dataset repo identifier
+HF_DATASET_REPO="${HF_DATASET_REPO:-shahedmomenzadeh/cataract_surgery_vlm_eval}"
 
-# HuggingFace token for gated model access (set as Kaggle secret or env var)
+# HuggingFace token for gated model / dataset access (set as Kaggle secret or env var)
 # HF_TOKEN="${HF_TOKEN:-}"
 # export HF_TOKEN
 export HF_HOME="$WORKING_DIR/hf_cache"
@@ -37,6 +37,7 @@ log "=================================================="
 log "  Mage-VL Kaggle Inference Runner"
 log "=================================================="
 log "Working Dir:    $WORKING_DIR"
+log "HF Dataset:     $HF_DATASET_REPO"
 log "Dataset Dir:    $DATASET_DIR"
 log "Output Dir:     $OUTPUT_DIR"
 log "Model ID:       $MODEL_ID"
@@ -45,24 +46,7 @@ log "Max Frames:     $MAX_FRAMES"
 log "Video Backend:  $VIDEO_BACKEND"
 log "=================================================="
 
-# ── 2. DOWNLOAD DATASET ────────────────────────────────────────────────────
-if [ ! -d "$DATASET_DIR/Test" ]; then
-    log "Installing gdown..."
-    pip install -q gdown
-
-    log "Downloading Test.zip from Google Drive (ID: $DRIVE_FILE_ID)..."
-    gdown "$DRIVE_FILE_ID" --output "$WORKING_DIR/Test.zip"
-
-    log "Unzipping Test.zip into $DATASET_DIR..."
-    mkdir -p "$DATASET_DIR"
-    unzip -q -o "$WORKING_DIR/Test.zip" -d "$DATASET_DIR"
-    rm -f "$WORKING_DIR/Test.zip"
-    log "Dataset ready at $DATASET_DIR."
-else
-    log "Test dataset already present at $DATASET_DIR/Test. Skipping download."
-fi
-
-# ── 3. INSTALL DEPENDENCIES ────────────────────────────────────────────────
+# ── 2. INSTALL DEPENDENCIES ────────────────────────────────────────────────
 log "Installing Python dependencies via pip..."
 
 pip install -q --upgrade pip
@@ -79,14 +63,29 @@ pip install -q --no-build-isolation mamba-ssm
 log "[4/5] Installing codec-video-prep & OpenCV..."
 pip install -q "codec-video-prep" "opencv-python" "pillow"
 
-log "[5/5] Installing remaining Mage-VL dependencies..."
+log "[5/5] Installing remaining Mage-VL and dataset dependencies..."
 pip install -q \
     "transformers>=5.7" \
     "accelerate" \
     "bitsandbytes>=0.43.0" \
     "tqdm" \
     "openai" \
-    "imageio"
+    "imageio" \
+    "huggingface_hub" \
+    "pyarrow"
+
+log "All dependencies installed successfully."
+
+# ── 3. DOWNLOAD & FLATTEN DATASET ─────────────────────────────────────────
+if [ ! -d "$DATASET_DIR" ] || [ -z "$(ls -A "$DATASET_DIR" 2>/dev/null)" ]; then
+    log "Downloading and flattening Hugging Face dataset '$HF_DATASET_REPO' -> '$DATASET_DIR'..."
+    python flatten_dataset.py \
+        --hf-repo "$HF_DATASET_REPO" \
+        --output-dir "$DATASET_DIR"
+    log "Dataset ready and flattened at $DATASET_DIR."
+else
+    log "Dataset already present at $DATASET_DIR. Skipping download."
+fi
 
 log "All dependencies installed successfully."
 
