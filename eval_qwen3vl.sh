@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ── 1. CONFIGURATION OVERRIDES ─────────────────────────────────────────────
 MODEL_ID="${MODEL_ID:-Qwen/Qwen3-VL-2B-Instruct}"
 DATASET_ROOT="${DATASET_ROOT:-$SCRIPT_DIR/evaluation_dataset}"
-HF_DATASET_REPO="${HF_DATASET_REPO:-shahedmomenzadeh/cataract_surgery_vlm_eval}"
+HF_DATASET_REPO="${HF_DATASET_REPO:-shahedm2001/cataract_surgery_vlm_eval}"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
 SPLIT="${SPLIT:-Test}"
 DATA_LEVEL="${DATA_LEVEL:-both}"         # clip, full, or both

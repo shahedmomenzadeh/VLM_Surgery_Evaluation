@@ -22,7 +22,7 @@ VIDEO_BACKEND="${VIDEO_BACKEND:-frames}"     # frames or codec
 SPLIT="Test"
 
 # HuggingFace Dataset repo identifier
-HF_DATASET_REPO="${HF_DATASET_REPO:-shahedmomenzadeh/cataract_surgery_vlm_eval}"
+HF_DATASET_REPO="${HF_DATASET_REPO:-shahedm2001/cataract_surgery_vlm_eval}"
 
 # HuggingFace token for gated model / dataset access (set as Kaggle secret or env var)
 # HF_TOKEN="${HF_TOKEN:-}"

@@ -97,7 +97,7 @@ python main.py \
     --mode inference \
     --model-family qwen3vl \
     --model-id Qwen/Qwen3-VL-2B-Instruct \
-    --hf-dataset shahedmomenzadeh/cataract_surgery_vlm_eval \
+    --hf-dataset shahedm2001/cataract_surgery_vlm_eval \
     --data-level both \
     --output-dir ./results
 ```
@@ -114,7 +114,7 @@ python flatten_dataset.py \
 
 # Or download from Hugging Face Hub and flatten in one step
 python flatten_dataset.py \
-    --hf-repo shahedmomenzadeh/cataract_surgery_vlm_eval \
+    --hf-repo shahedm2001/cataract_surgery_vlm_eval \
     --output-dir ./evaluation_dataset
 ```
 
