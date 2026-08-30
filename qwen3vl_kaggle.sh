@@ -13,7 +13,7 @@ log() {
 WORKING_DIR="/kaggle/working"
 DATASET_DIR="$WORKING_DIR/dataset"
 OUTPUT_DIR="$WORKING_DIR/results"
-RESULTS_ZIP="$WORKING_DIR/results_qwen3vl_2b_thinking_instruct.zip"
+RESULTS_ZIP="$WORKING_DIR/results_qwen3vl_models.zip"
 
 MAX_FRAMES="${MAX_FRAMES:-32}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2048}"
@@ -86,8 +86,12 @@ log "All dependencies installed."
 mkdir -p "$OUTPUT_DIR"
 
 MODELS=(
-    "Qwen/Qwen3-VL-2B-Instruct"
-    "Qwen/Qwen3-VL-2B-Thinking"
+    "Qwen/Qwen3-VL-8B-Thinking"
+    "Qwen/Qwen3-VL-8B-Instruct"
+    # "Qwen/Qwen3-VL-4B-Thinking"
+    # "Qwen/Qwen3-VL-4B-Instruct"
+    # "Qwen/Qwen3-VL-2B-Thinking"
+    # "Qwen/Qwen3-VL-2B-Instruct"
 )
 
 for MODEL_ID in "${MODELS[@]}"; do
@@ -115,7 +119,7 @@ done
 # ── 5. ZIP RESULTS ─────────────────────────────────────────────────────────
 log "Zipping results from $OUTPUT_DIR -> $RESULTS_ZIP..."
 cd "$WORKING_DIR"
-zip -r "results_qwen3vl_2b_thinking_instruct.zip" results/
+zip -r "$RESULTS_ZIP" results/
 
 log "=================================================="
 log "All done! Results archived at:"

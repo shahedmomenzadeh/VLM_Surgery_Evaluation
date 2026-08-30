@@ -130,6 +130,36 @@ def run_hulumed_generation(
     return model_response
 
 
+def _patch_hulumed_processor_compatibility():
+    """Patches ProcessorMixin to support HulumedProcessor under transformers >= 4.49."""
+    import inspect
+    import transformers.processing_utils
+
+    orig_from_pretrained = transformers.processing_utils.ProcessorMixin.from_pretrained
+
+    @classmethod
+    def patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        orig_get_args = getattr(cls, "_get_arguments_from_pretrained", None)
+        if orig_get_args is not None and not getattr(orig_get_args, "_patched_compat", False):
+            try:
+                sig = inspect.signature(orig_get_args)
+                pos_params = [
+                    p for p in sig.parameters.values()
+                    if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                ]
+                if len(pos_params) <= 2:
+                    @classmethod
+                    def wrapped_get_args(subcls, path, *extra_args, **kw):
+                        return orig_get_args(path, **kw)
+                    wrapped_get_args._patched_compat = True
+                    cls._get_arguments_from_pretrained = wrapped_get_args
+            except Exception:
+                pass
+        return orig_from_pretrained.__func__(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+    transformers.processing_utils.ProcessorMixin.from_pretrained = patched_from_pretrained
+
+
 def run(args, records: dict, judge) -> dict:
     """Main runner for HuluMed inference called by main.py."""
     args.max_new_tokens = 4096
@@ -137,6 +167,8 @@ def run(args, records: dict, judge) -> dict:
     if args.mode == "judge":
         log.info("Mode 'judge' is active. Skipping model initialization for HuluMed.")
         return {}
+
+    _patch_hulumed_processor_compatibility()
 
     quant_config = None
     if args.load_in_4bit:
