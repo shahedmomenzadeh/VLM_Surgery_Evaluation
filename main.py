@@ -96,9 +96,9 @@ def parse_args():
                         help="Per-GPU memory budget constraint (e.g., '12GiB') to balance load.")
     
     # Judge API settings
-    parser.add_argument("--judge-base-url", type=str, default="https://openrouter.ai/api/v1",
-                        help="Base URL for OpenAI-compatible LLM judge API endpoint.")
-    parser.add_argument("--judge-model", type=str, default="openai/gpt-oss-120b:free",
+    parser.add_argument("--judge-base-url", type=str, default="https://opencode.ai/zen/go/v1/responses",
+                        help="Judge API base URL — supports chat completions (https://.../v1 or .../v1/chat/completions) and Responses API (https://.../v1/responses).")
+    parser.add_argument("--judge-model", type=str, default="muse-spark-1.3-contributor",
                         help="LLM judge model identifier.")
     parser.add_argument("--judge-api-key-env", type=str, default="PROVIDER_API_KEY",
                         help="Environment variable name that holds LLM judge API key.")

@@ -15,6 +15,7 @@ import time
 import math
 import logging
 from openai import OpenAI
+from tqdm import tqdm
 
 from prompts import (
     DESCRIPTION_JUDGE_SYSTEM_PROMPT,
@@ -198,17 +199,26 @@ class LLMJudge:
     for both clip-level and full-video evaluations.
     """
     def __init__(self, base_url: str, api_key: str, model: str, retries: int = 3, num_workers: int = 3):
-        self.base_url = base_url
+        self.base_url = (base_url or "").strip()
+        # Detect Responses API endpoints (e.g. https://.../v1/responses).
+        # The OpenAI client appends the endpoint path itself (/responses or
+        # /chat/completions), so a trailing path is normalized to the base.
+        self.use_responses_api = self.base_url.rstrip("/").endswith("/responses")
+        if self.base_url.endswith("/chat/completions"):
+            self.base_url = self.base_url[: -len("/chat/completions")]
+        elif self.use_responses_api:
+            self.base_url = self.base_url[: -len("/responses")]
         self.api_key = api_key
         self.model = model
         self.retries = retries
         self.num_workers = num_workers
 
-        api_key = (api_key or "").strip()
-        # Local self-hosted endpoints (vLLM / llama.cpp / etc.) typically ignore
-        # the Authorization header but the OpenAI client still requires a non-empty
-        # key string — use a placeholder for localhost/loopback only.
-        if not api_key and base_url and ("localhost" in base_url or "127.0.0.1" in base_url):
+        api_key = ((api_key or "").strip().strip("\"'").strip("\r\n\t "))
+        # Local self-hosted endpoints (vLLM / llama.cpp / etc.) require no API key
+        # and typically ignore the Authorization header — but the OpenAI client
+        # still needs a non-empty key string. Always use a placeholder for
+        # localhost/loopback, regardless of any key provided in the environment.
+        if base_url and ("localhost" in base_url or "127.0.0.1" in base_url):
             api_key = "local-no-key"
 
         # Initialize OpenAI client if api_key is available
@@ -217,6 +227,51 @@ class LLMJudge:
         else:
             self.client = None
             log.warning("No API key provided for LLMJudge. LLM-based scoring will fall back to deterministic scoring.")
+
+    # -------------------------------------------------------------------------
+    # Completion dispatch: chat completions vs Responses API (/responses)
+    # -------------------------------------------------------------------------
+
+    def _complete(self, system_prompt: str, user_prompt: str, max_tokens: int):
+        """
+        Single completion call. Uses the Responses API (instructions + input +
+        max_output_tokens) when the base URL targets /responses, otherwise the
+        chat-completions API (system/user messages + max_tokens).
+        """
+        if self.use_responses_api:
+            return self.client.responses.create(
+                model=self.model,
+                instructions=system_prompt,
+                input=[{"role": "user", "content": user_prompt}],
+                max_output_tokens=max_tokens,
+            )
+        return self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+    def _extract_response_text(self, completion) -> str:
+        """Extracts the assistant output text from a chat- or responses-API completion."""
+        if self.use_responses_api:
+            parts = []
+            for item in completion.output:
+                if getattr(item, "type", None) != "message":
+                    continue
+                content = getattr(item, "content", None)
+                if isinstance(content, str):
+                    parts.append(content)
+                elif isinstance(content, list):
+                    for block in content:
+                        if getattr(block, "type", None) in ("output_text", "text"):
+                            parts.append(getattr(block, "text", ""))
+            return "\n".join(parts).strip()
+        message = completion.choices[0].message
+        return (getattr(message, "content", None) or "").strip()
 
     # -------------------------------------------------------------------------
     # LLM extractor fallbacks (only invoked when regex/JSON parsing fails)
@@ -232,16 +287,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=CLIP_EXTRACTOR_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": CLIP_EXTRACTOR_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 ans = result.get("extracted_answer", "").strip().upper()
@@ -264,16 +315,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=PHASE_EXTRACTOR_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": PHASE_EXTRACTOR_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 ans = result.get("extracted_answer", "").strip().upper()
@@ -297,16 +344,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=BOUNDARY_EXTRACTOR_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": BOUNDARY_EXTRACTOR_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 ans = result.get("extracted_answer")
@@ -332,16 +375,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=INTERVAL_EXTRACTOR_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=1024,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": INTERVAL_EXTRACTOR_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 ans = result.get("extracted_answer")
@@ -544,16 +583,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=DESCRIPTION_JUDGE_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=2048,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": DESCRIPTION_JUDGE_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 score = int(result.get("score", 0))
@@ -615,16 +650,12 @@ class LLMJudge:
 
         for attempt in range(1, self.retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                response = self._complete(
+                    system_prompt=NARRATION_JUDGE_SYSTEM_PROMPT,
+                    user_prompt=user_msg,
                     max_tokens=8192,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": NARRATION_JUDGE_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_msg}
-                    ]
                 )
-                raw = response.choices[0].message.content.strip()
+                raw = self._extract_response_text(response).strip()
                 raw = re.sub(r"```(?:json)?|```", "", raw).strip()
                 result = json.loads(raw)
                 overall = int(result.get("overall_score", 0))
@@ -728,8 +759,15 @@ class LLMJudge:
                 os.replace(tmp_scores_path, scores_path)
 
         # Grade any un-evaluated or previously failed responses
+        pending = [r for r in all_responses if resp_key(r) not in valid_scores_by_key]
         new_or_updated = 0
-        for record in all_responses:
+        failed_judge = 0
+        if pending:
+            log.info(f"Grading {len(pending)} of {len(all_responses)} records (rest already scored).")
+
+        pbar = tqdm(pending, desc=f"Grading [{tag}]", unit="rec", dynamic_ncols=True,
+                    leave=True, disable=len(pending) == 0)
+        for record in pbar:
             key = resp_key(record)
             if key in valid_scores_by_key:
                 continue
@@ -744,7 +782,6 @@ class LLMJudge:
                 model_response = record.get("model_response")
                 reference_description = record.get("reference_description") or record.get("reference_reasoning", "")
 
-                log.info(f"Grading clip {resp_id} ({question_type})...")
                 try:
                     if reward_type == "llm_judge" or task_category == "visual_description" or "visual_description" in question_type:
                         score_info = self.score_description(
@@ -773,16 +810,18 @@ class LLMJudge:
                     )
                     valid_scores_by_key[key] = score_record
                     new_or_updated += 1
+                    if str(score_record.get("method", "")) in ("llm_judge_failed", "llm_judge_fallback"):
+                        failed_judge += 1
                     if new_or_updated % 10 == 0:
                         flush_scores_to_file()
                 except Exception as e:
                     log.error(f"Error grading clip {resp_id}: {e}")
+                    failed_judge += 1
 
             else:  # level == "full"
                 task_type = record.get("task_type", task_key or "")
                 model_response = record.get("model_response")
 
-                log.info(f"Grading full video {resp_id} ({task_type})...")
                 try:
                     if task_type == "narration":
                         reference_narration = record.get("reference_narration", "")
@@ -797,13 +836,21 @@ class LLMJudge:
                         }
                         valid_scores_by_key[key] = score_record
                         new_or_updated += 1
+                        if str(score_record.get("method", "")) in ("llm_judge_failed", "llm_judge_fallback"):
+                            failed_judge += 1
                         flush_scores_to_file()
                 except Exception as e:
                     log.error(f"Error grading full video {resp_id} task {task_type}: {e}")
+                    failed_judge += 1
+
+            pbar.set_postfix(scored=new_or_updated, judge_failed=failed_judge)
 
         # Final flush to ensure all scores are written in exact original order
         flush_scores_to_file()
-        log.info(f"Grading completed for {responses_path}. Total scored: {len(valid_scores_by_key)} (New/Replaced: {new_or_updated})")
+        log.info(
+            f"Grading completed for {responses_path}. Total scored: {len(valid_scores_by_key)} "
+            f"(New/Replaced this run: {new_or_updated}, Judge-failed: {failed_judge})"
+        )
 
         return self._generate_summary(scores_path, summary_path, level, model_id, tag)
 

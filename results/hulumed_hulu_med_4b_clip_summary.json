@@ -1,0 +1,40 @@
+{
+    "model_id": "ZJU-AI4H/Hulu-Med-4B",
+    "tag": "hulumed_hulu_med_4b",
+    "total_scored": 989,
+    "overall_normalised_accuracy": 0.4277,
+    "per_type": {
+        "instrument_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.6358
+        },
+        "step_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.463
+        },
+        "visual_description": {
+            "n_samples": 293,
+            "avg_normalised_score": 0.2259
+        },
+        "visual_observation": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.8519
+        },
+        "contextual_phase_recognition": {
+            "n_samples": 60,
+            "avg_normalised_score": 0.127
+        },
+        "boundary_detection": {
+            "n_samples": 49,
+            "avg_normalised_score": 0.1061
+        },
+        "timestamp_to_phase": {
+            "n_samples": 47,
+            "avg_normalised_score": 0.23
+        },
+        "temporal_localization": {
+            "n_samples": 54,
+            "avg_normalised_score": 0.3182
+        }
+    }
+}

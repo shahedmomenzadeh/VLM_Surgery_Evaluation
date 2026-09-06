@@ -1,0 +1,40 @@
+{
+    "model_id": "Qwen/Qwen3-VL-2B-Thinking",
+    "tag": "qwen3vl_qwen3_vl_2b_thinking",
+    "total_scored": 989,
+    "overall_normalised_accuracy": 0.4255,
+    "per_type": {
+        "instrument_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.6852
+        },
+        "step_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.3519
+        },
+        "visual_description": {
+            "n_samples": 293,
+            "avg_normalised_score": 0.2765
+        },
+        "visual_observation": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.8333
+        },
+        "contextual_phase_recognition": {
+            "n_samples": 60,
+            "avg_normalised_score": 0.1587
+        },
+        "boundary_detection": {
+            "n_samples": 49,
+            "avg_normalised_score": 0.2012
+        },
+        "timestamp_to_phase": {
+            "n_samples": 47,
+            "avg_normalised_score": 0.1489
+        },
+        "temporal_localization": {
+            "n_samples": 54,
+            "avg_normalised_score": 0.1928
+        }
+    }
+}

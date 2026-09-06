@@ -13,7 +13,7 @@
 #   bash run_fairness.sh --k 3 --output-dir ./results
 #
 #   # Custom judge model and endpoint
-#   bash run_fairness.sh --tag qwen3vl_qwen3_vl_2b_instruct --judge-base-url http://localhost:8000/v1 --judge-model qwen3.8-max
+#   bash run_fairness.sh --tag qwen3vl_qwen3_vl_2b_instruct --judge-base-url http://localhost:20128/v1 --judge-model combo
 
 set -euo pipefail
 
@@ -33,8 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 1. CONFIGURATION DEFAULTS ──────────────────────────────────────────────
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
-JUDGE_BASE_URL="${JUDGE_BASE_URL:-http://localhost:8000/v1}"
-JUDGE_MODEL="${JUDGE_MODEL:-qwen3.8-max}"
+JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://opencode.ai/zen/go/v1/responses}"
+JUDGE_MODEL="${JUDGE_MODEL:-muse-spark-1.3-contributor}"
 PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
 JUDGE_API_KEY_ENV="${JUDGE_API_KEY_ENV:-PROVIDER_API_KEY}"
 K="${K:-3}"
@@ -45,12 +45,17 @@ SKIP_CLIP=false
 SKIP_NARRATION=false
 NUM_WORKERS="${NUM_WORKERS:-1}"
 
-# Load .env if present (strip Windows CR line endings)
+# Load .env if present (strip Windows CR line endings AND surrounding quotes)
 if [ -f "$SCRIPT_DIR/.env" ]; then
     set -a
     while IFS= read -r line; do
         line="${line%$'\r'}"
-        [[ "$line" =~ ^[A-Za-z_]+= ]] && export "$line"
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        val="${val#\"}"; val="${val%\"}"
+        val="${val#\'}"; val="${val%\'}"
+        export "$key=$val"
     done < "$SCRIPT_DIR/.env"
     set +a
 fi
@@ -109,8 +114,8 @@ while [[ $# -gt 0 ]]; do
             echo "  -t, --tag <tag>            Model tag (e.g. qwen3vl_qwen3_vl_2b_instruct). If omitted, scans results dir."
             echo "  -k, --k <num>              Number of repeated judge runs per response (default: 3)"
             echo "  --output-dir <dir>         Directory containing model response JSONL files (default: ./results)"
-            echo "  --judge-base-url <url>     LLM judge OpenAI-compatible base URL (default: http://localhost:8000/v1)"
-            echo "  --judge-model <model>      LLM judge model identifier (default: qwen3.8-max)"
+            echo "  --judge-base-url <url>     LLM judge OpenAI-compatible base URL (default: http://localhost:20128/v1)"
+            echo "  --judge-model <model>      LLM judge model identifier (default: combo)"
             echo "  --judge-api-key-env <var>  Environment variable name for judge API key (default: PROVIDER_API_KEY)"
             echo "  --delay <sec>              Delay in seconds between judge API calls (default: 1.0)"
             echo "  --judge-retries <num>      Number of API retry attempts on failure (default: 3)"

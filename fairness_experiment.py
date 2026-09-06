@@ -39,8 +39,8 @@ def parse_args():
                         help="Number of concurrent judge worker threads (default: 1).")
     parser.add_argument("--output-dir", type=str, default="./results",
                         help="Directory holding <tag>_clip_responses.jsonl / <tag>_full_responses.jsonl.")
-    parser.add_argument("--judge-base-url", type=str, default="http://localhost:8000/v1")
-    parser.add_argument("--judge-model", type=str, default="qwen3.8-max")
+    parser.add_argument("--judge-base-url", type=str, default="https://opencode.ai/zen/go/v1/responses")
+    parser.add_argument("--judge-model", type=str, default="muse-spark-1.3-contributor")
     parser.add_argument("--judge-api-key-env", type=str, default="PROVIDER_API_KEY")
     parser.add_argument("--judge-retries", type=int, default=3)
     parser.add_argument("--delay", type=float, default=1.0,
@@ -431,8 +431,8 @@ def print_summary(summary: dict) -> None:
 def main():
     args = parse_args()
 
-    api_key = os.environ.get(args.judge_api_key_env, "").strip()
-    # Local self-hosted endpoints (e.g. http://localhost:8000/v1) need no API key
+    api_key = (os.environ.get(args.judge_api_key_env, "") or "").strip().strip("\"'").strip("\r\n\t ")
+    # Local self-hosted endpoints (e.g. http://localhost:20128/v1) need no API key
     # — LLMJudge substitutes a placeholder key for loopback addresses.
     local_endpoint = "localhost" in args.judge_base_url or "127.0.0.1" in args.judge_base_url
     if not api_key and not local_endpoint:

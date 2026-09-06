@@ -3,7 +3,7 @@
 # Automated evaluation scanner and concurrent judge runner for completed VLM model responses
 #
 # Usage:
-#   bash eval_all.sh [--num-workers 3] [--output-dir ./results] [--judge-model qwen3.7-plus]
+#   bash eval_all.sh [--num-workers 3] [--output-dir ./results] [--judge-model combo]
 
 set -euo pipefail
 
@@ -21,13 +21,43 @@ err() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ── SIGNAL HANDLING ─────────────────────────────────────────────────────────
+# Ctrl+C / Ctrl+Z / terminate: kill every spawned worker so no orphan judge
+# processes survive (a plain Ctrl+Z only *freezes* the process group).
+cleanup_jobs() {
+    err "Signal caught — stopping evaluation and terminating all workers..."
+    local child
+    for child in $(jobs -p); do
+        kill -9 "$child" 2>/dev/null || true
+    done
+    pkill -9 -P $$ 2>/dev/null || true
+    kill -9 -$$ 2>/dev/null || true   # fallback: kill the whole process group
+    exit 130
+}
+trap cleanup_jobs INT TERM HUP TSTP
+
 # ── 1. CONFIGURATION DEFAULTS ──────────────────────────────────────────────
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/results}"
-JUDGE_BASE_URL="${JUDGE_BASE_URL:-http://localhost:8000/v1}"
-JUDGE_MODEL="${JUDGE_MODEL:-qwen3.7-plus}"
-PROVIDER_API_KEY="${PROVIDER_API_KEY:-none}"
+JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://opencode.ai/zen/go/v1/responses}"
+JUDGE_MODEL="${JUDGE_MODEL:-muse-spark-1.3-contributor}"
+PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
 JUDGE_API_KEY_ENV="${JUDGE_API_KEY_ENV:-PROVIDER_API_KEY}"
 NUM_WORKERS="${NUM_WORKERS:-1}"
+
+# Load .env if present (strip Windows CR line endings AND surrounding quotes)
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        val="${val#\"}"; val="${val%\"}"
+        val="${val#\'}"; val="${val%\'}"
+        export "$key=$val"
+    done < "$SCRIPT_DIR/.env"
+    set +a
+fi
 
 # Expected test dataset thresholds for complete runs
 # 989 clip-level records (293 visual_description + 486 mcq + 210 phase),
@@ -194,7 +224,7 @@ for tag in "${!unique_tags[@]}"; do
 
     # Check if both clip and full video levels are complete
     if [ "$clip_count" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_count" -ge "$EXPECTED_FULL_COUNT" ]; then
-        log "  [READY] $tag -> Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT"
+        log "  [READY] $tag ($model_family | $model_id) -> Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT"
         FINISHED_MODELS+=("$tag|$model_family|$model_id")
     else
         warn "  [SKIP INCOMPLETE] $tag -> Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT (both levels required)"
@@ -224,7 +254,21 @@ run_model_evaluation() {
     local id="$3"
     local log_file="$OUTPUT_DIR/judge_${tag}.log"
 
-    log "[Worker Started] Evaluating: $tag ($id)..."
+    # Ensure the output dir + log file are usable before launching.
+    # On WSL drvfs/9p, deleting files concurrently with a running worker can
+    # cause transient ENOENT on redirect — retry before giving up.
+    mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
+    local attempt=0
+    while ! : > "$log_file" 2>/dev/null; do
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge 5 ]; then
+            err "Cannot create log file '$log_file' (is $OUTPUT_DIR writable?) — aborting worker for $tag"
+            return 1
+        fi
+        sleep 1
+    done
+
+    log "[Worker Started] Evaluating: $tag ($id) on $JUDGE_MODEL @ $JUDGE_BASE_URL ..."
     
     if "$QWEN_PYTHON" main.py \
         --mode judge \
@@ -245,23 +289,60 @@ run_model_evaluation() {
 
 pids=()
 failed=0
+declare -A PID_TAG=()
 
 for item in "${FINISHED_MODELS[@]}"; do
     IFS="|" read -r tag model_family model_id <<< "$item"
     
     # Throttle active background jobs to NUM_WORKERS
+    if [ "$(jobs -rp | wc -l)" -ge "$NUM_WORKERS" ]; then
+        log "Throttle: $NUM_WORKERS worker(s) active — waiting for a slot before launching $tag..."
+    fi
     while [ "$(jobs -rp | wc -l)" -ge "$NUM_WORKERS" ]; do
         sleep 2
     done
 
     run_model_evaluation "$tag" "$model_family" "$model_id" &
+    PID_TAG[$!]="$tag"
     pids+=($!)
+    log "[Launched] $tag ($model_family | $model_id) -> log: judge_${tag}.log"
 done
+
+# ── 5. LIVE PROGRESS MONITOR ───────────────────────────────────────────────
+# Shows a compact per-model status line (last progress from each judge log)
+# while the workers run, including their tqdm bars (converted \r -> newline).
+if [ ${#pids[@]} -gt 0 ]; then
+    log "Monitoring ${#pids[@]} worker(s) — live progress from judge logs..."
+    start_ts=$(date +%s)
+    while :; do
+        active=0
+        status_line=""
+        for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                active=1
+                tag="${PID_TAG[$pid]}"
+                last_line=$(tail -c 500 "$OUTPUT_DIR/judge_${tag}.log" 2>/dev/null | tr '\r' '\n' | tail -1)
+                status_line+=" $tag=[${last_line:0:68}] "
+            fi
+        done
+        if [ "$active" -eq 0 ]; then
+            break
+        fi
+        elapsed=$(( $(date +%s) - start_ts ))
+        printf "\r\033[2K[%02d:%02d] active:%s" "$((elapsed / 60))" "$((elapsed % 60))" "${status_line:0:200}"
+        sleep 4
+    done
+    echo ""
+fi
 
 # Wait for all background workers to complete
 for pid in "${pids[@]}"; do
+    tag="${PID_TAG[$pid]}"
     if ! wait "$pid"; then
         failed=$((failed + 1))
+        err "Worker failed: $tag (Check log: $OUTPUT_DIR/judge_${tag}.log)"
+    else
+        log "[Finished] $tag — graded successfully (Log: $OUTPUT_DIR/judge_${tag}.log)"
     fi
 done
 
@@ -272,4 +353,19 @@ if [ "$failed" -eq 0 ]; then
 else
     warn "$failed model evaluation worker(s) encountered issues. Check logs in $OUTPUT_DIR."
 fi
+log "Score status per model (expected clip=989, full=15):"
+for tag in "${!unique_tags[@]}"; do
+    clip_scores=0; full_scores=0
+    if [ -f "$OUTPUT_DIR/${tag}_clip_scores.jsonl" ]; then
+        clip_scores=$(wc -l < "$OUTPUT_DIR/${tag}_clip_scores.jsonl" 2>/dev/null || echo 0)
+    fi
+    if [ -f "$OUTPUT_DIR/${tag}_full_scores.jsonl" ]; then
+        full_scores=$(wc -l < "$OUTPUT_DIR/${tag}_full_scores.jsonl" 2>/dev/null || echo 0)
+    fi
+    if [ "$clip_scores" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_scores" -ge "$EXPECTED_FULL_COUNT" ]; then
+        log "  [DONE]   $tag: clip_scores=$clip_scores/$EXPECTED_CLIP_COUNT  full_scores=$full_scores/$EXPECTED_FULL_COUNT"
+    else
+        warn "  [PENDING] $tag: clip_scores=$clip_scores/$EXPECTED_CLIP_COUNT  full_scores=$full_scores/$EXPECTED_FULL_COUNT"
+    fi
+done
 log "=================================================="

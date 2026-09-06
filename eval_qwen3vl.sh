@@ -24,9 +24,24 @@ MODE="${MODE:-inference}"                      # all, inference, or judge
 USE_FLASH="${USE_FLASH:-false}"
 
 # LLM Judge configuration (used when MODE=all or MODE=judge)
-JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://api.gapgpt.app/v1}"
-JUDGE_MODEL="${JUDGE_MODEL:-deepseek-v4-flash}"
+JUDGE_BASE_URL="${JUDGE_BASE_URL:-https://opencode.ai/zen/go/v1/responses}"
+JUDGE_MODEL="${JUDGE_MODEL:-muse-spark-1.3-contributor}"
 PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
+
+# Load .env if present (strip Windows CR line endings AND surrounding quotes)
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        val="${val#\"}"; val="${val%\"}"
+        val="${val#\'}"; val="${val%\'}"
+        export "$key=$val"
+    done < "$SCRIPT_DIR/.env"
+    set +a
+fi
 
 export PROVIDER_API_KEY
 export HF_HOME="$SCRIPT_DIR/hf_cache"
