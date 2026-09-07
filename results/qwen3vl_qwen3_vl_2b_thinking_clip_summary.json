@@ -2,7 +2,7 @@
     "model_id": "Qwen/Qwen3-VL-2B-Thinking",
     "tag": "qwen3vl_qwen3_vl_2b_thinking",
     "total_scored": 989,
-    "overall_normalised_accuracy": 0.4255,
+    "overall_normalised_accuracy": 0.4338,
     "per_type": {
         "instrument_identification": {
             "n_samples": 162,
@@ -14,7 +14,7 @@
         },
         "visual_description": {
             "n_samples": 293,
-            "avg_normalised_score": 0.2765
+            "avg_normalised_score": 0.3044
         },
         "visual_observation": {
             "n_samples": 162,

@@ -2,7 +2,7 @@
     "model_id": "Qwen/Qwen3-VL-4B-Instruct",
     "tag": "qwen3vl_qwen3_vl_4b_instruct",
     "total_scored": 989,
-    "overall_normalised_accuracy": 0.3879,
+    "overall_normalised_accuracy": 0.4059,
     "per_type": {
         "instrument_identification": {
             "n_samples": 162,
@@ -14,7 +14,7 @@
         },
         "visual_description": {
             "n_samples": 293,
-            "avg_normalised_score": 0.2669
+            "avg_normalised_score": 0.3276
         },
         "visual_observation": {
             "n_samples": 162,

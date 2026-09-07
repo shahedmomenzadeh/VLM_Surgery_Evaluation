@@ -2,7 +2,7 @@
     "model_id": "lingshu-medical-mllm/Lingshu-7B",
     "tag": "lingshu_lingshu_7b",
     "total_scored": 989,
-    "overall_normalised_accuracy": 0.4077,
+    "overall_normalised_accuracy": 0.4208,
     "per_type": {
         "instrument_identification": {
             "n_samples": 162,
@@ -14,7 +14,7 @@
         },
         "visual_description": {
             "n_samples": 293,
-            "avg_normalised_score": 0.2157
+            "avg_normalised_score": 0.2601
         },
         "visual_observation": {
             "n_samples": 162,

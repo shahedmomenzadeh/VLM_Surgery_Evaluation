@@ -20,6 +20,7 @@ env/
 # Results and outputs
 # results/
 results_old/
+results/archive/
 
 # Dataset files
 dataset/

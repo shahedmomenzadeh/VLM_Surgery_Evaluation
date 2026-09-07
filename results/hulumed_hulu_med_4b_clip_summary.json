@@ -2,7 +2,7 @@
     "model_id": "ZJU-AI4H/Hulu-Med-4B",
     "tag": "hulumed_hulu_med_4b",
     "total_scored": 989,
-    "overall_normalised_accuracy": 0.4277,
+    "overall_normalised_accuracy": 0.4376,
     "per_type": {
         "instrument_identification": {
             "n_samples": 162,
@@ -14,7 +14,7 @@
         },
         "visual_description": {
             "n_samples": 293,
-            "avg_normalised_score": 0.2259
+            "avg_normalised_score": 0.2594
         },
         "visual_observation": {
             "n_samples": 162,
