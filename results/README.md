@@ -34,7 +34,9 @@ LLM-judge scoring (visual description + full-video narration) was performed with
 ### 2.1. Multiple-Choice Questions (MCQ)
 Models must select the correct single letter ($A$–$D$) within the JSON `answer` field.
 
-$$\mathcal{R}_{\text{task}} = \begin{cases} 1.0 & \text{if } \operatorname{normalize}(\hat{y}) = y^* \\ 0.0 & \text{otherwise} \end{cases}$$
+```math
+\mathcal{R}_{\text{task}} = \begin{cases} 1.0 & \text{if } \text{normalize}(\hat{y}) = y^* \\ 0.0 & \text{otherwise} \end{cases}
+```
 
 Scores are strictly deterministic.
 
@@ -42,27 +44,38 @@ Scores are strictly deterministic.
 
 ### 2.2. Phase Understanding (13-Phase Clinical Ontology)
 All phase tasks utilize the standardized 13-phase cataract surgery ontology:
-$$\text{P01 (Incision)} \dots \text{P13 (Idle)}$$
+
+```math
+\text{P01 (Incision)} \dots \text{P13 (Idle)}
+```
 
 #### A. Boundary Detection ($n=49$)
 The model predicts a clip-local boundary timestamp $\hat{t}$ in seconds. The reward applies an exponential decay parameterized by tolerance threshold $\tau = 1.5\text{ s}$:
 
-$$\mathcal{R}_{\text{task}} = \exp\left(-\frac{|\hat{t} - t^*|}{1.5}\right) \in (0, 1]$$
+```math
+\mathcal{R}_{\text{task}} = \exp\left(-\frac{|\hat{t} - t^*|}{1.5}\right) \in (0, 1]
+```
 
 #### B. Temporal Localization ($n=54$)
 The model predicts a time interval $[\hat{s}, \hat{e}]$ representing the active duration of a queried phase. Scored using Intersection-over-Union (IoU):
 
-$$\mathcal{R}_{\text{task}} = \operatorname{IoU}([\hat{s}, \hat{e}], [s^*, e^*]) = \frac{\max(0, \min(\hat{e}, e^*) - \max(\hat{s}, s^*))}{(\hat{e} - \hat{s}) + (e^* - s^*) - \text{Intersection}}$$
+```math
+\mathcal{R}_{\text{task}} = \text{IoU}([\hat{s}, \hat{e}], [s^*, e^*]) = \frac{\max(0, \min(\hat{e}, e^*) - \max(\hat{s}, s^*))}{(\hat{e} - \hat{s}) + (e^* - s^*) - \text{Intersection}}
+```
 
 #### C. Timestamp-to-Phase & Contextual Phase Recognition ($n=107$)
 The model identifies the active surgical phase ID from visual frames or surrounding temporal context:
 
-$$\mathcal{R}_{\text{task}} = \begin{cases} 1.0 & \text{if } \hat{y}_{\text{phase}} = y^*_{\text{phase}} \\ 0.0 & \text{otherwise} \end{cases}$$
+```math
+\mathcal{R}_{\text{task}} = \begin{cases} 1.0 & \text{if } \hat{y}_{\text{phase}} = y^*_{\text{phase}} \\ 0.0 & \text{otherwise} \end{cases}
+```
 
 #### D. Strict JSON Format Bonus (Phase Tasks Only)
 To incentivize structured clinical reporting, a decoupled format reward $\mathcal{R}_{\text{fmt}} \in \{0, 1\}$ awards 1.0 if the output strictly parses as a valid JSON object containing exactly `{"explanation", "answer"}` without markdown fences:
 
-$$\mathcal{R}_{\text{total}} = \mathcal{R}_{\text{task}} + 0.05 \cdot \mathcal{R}_{\text{fmt}} \quad (\text{Max Score} = 1.05)$$
+```math
+\mathcal{R}_{\text{total}} = \mathcal{R}_{\text{task}} + 0.05 \cdot \mathcal{R}_{\text{fmt}} \quad (\text{Max Score} = 1.05)
+```
 
 The normalized task score is computed as $\mathcal{S}_{\text{norm}} = \frac{\mathcal{R}_{\text{total}}}{1.05}$.
 
