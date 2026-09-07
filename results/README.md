@@ -110,7 +110,8 @@ Complete surgeries (5–25 minutes) require generating a comprehensive chronolog
 
 | Model Architecture | Parameters | Modality / Focus | Overall Clip Acc ($n=989$) | MCQ Macro ($n=486$) | Phase Macro ($n=210$) | Visual Desc ($n=293$) | Full Narration Overall ($n=15$) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Hulu-Med-4B** | 4B | Medical Specialist | **0.4376** | **0.6502** | 0.1953 | 0.2594 | 0.2000 [0.0400] |
+| **Qwen3-VL-2B-Cataract-SFT** | 2B | Domain SFT | **0.5376** | **0.8354** | 0.1925 | 0.2935 | 0.3333 [0.0667] |
+| **Hulu-Med-4B** | 4B | Medical Specialist | 0.4376 | 0.6502 | 0.1953 | 0.2594 | 0.2000 [0.0400] |
 | **Qwen3-VL-2B-Thinking** | 2B | Generalist (Reasoning) | 0.4338 | 0.6235 | 0.1754 | 0.3044 | 0.1333 [0.0267] |
 | **Lingshu-7B** | 7B | Medical Specialist | 0.4208 | 0.6090 | 0.2157 | 0.2601 | **0.8000 [0.1600]** |
 | **Qwen3-VL-4B-Instruct** | 4B | Generalist (Instruct) | 0.4059 | 0.5926 | 0.0825 | **0.3276** | 0.1333 [0.0267] |
@@ -124,8 +125,9 @@ Complete surgeries (5–25 minutes) require generating a comprehensive chronolog
 
 | Model | Visual Desc ($n=293$) | Step ID ($n=162$) | Instrument ID ($n=162$) | Visual Obs ($n=162$) | Boundary Det. ($n=49$) | Temporal Loc. ($n=54$) | Timestamp $\to$ Phase ($n=47$) | Context Phase ($n=60$) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Hulu-Med-4B** | 0.2594 | **0.4630** | 0.6358 | **0.8519** | 0.1061 | 0.3182 | **0.2300** | 0.1270 |
-| **Qwen3-VL-2B-Thinking** | 0.3044 | 0.3519 | **0.6852** | 0.8333 | 0.2012 | 0.1928 | 0.1489 | 0.1587 |
+| **Qwen3-VL-2B-Cataract-SFT** | 0.2935 | **0.7778** | **0.8395** | **0.8889** | 0.2457 | 0.2237 | 0.1894 | 0.1111 |
+| **Hulu-Med-4B** | 0.2594 | 0.4630 | 0.6358 | 0.8519 | 0.1061 | 0.3182 | **0.2300** | 0.1270 |
+| **Qwen3-VL-2B-Thinking** | 0.3044 | 0.3519 | 0.6852 | 0.8333 | 0.2012 | 0.1928 | 0.1489 | 0.1587 |
 | **Lingshu-7B** | 0.2601 | 0.4444 | 0.6481 | 0.7346 | **0.3170** | 0.2566 | 0.2097 | 0.0793 |
 | **Qwen3-VL-4B-Instruct** | **0.3276** | 0.3148 | 0.6543 | 0.8086 | 0.0577 | 0.0530 | 0.1084 | 0.1111 |
 | **Hulu-Med-7B** | 0.2826 | 0.3333 | 0.5494 | 0.7531 | 0.0859 | **0.4618** | 0.2097 | 0.1111 |
@@ -140,6 +142,7 @@ Complete surgeries (5–25 minutes) require generating a comprehensive chronolog
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Lingshu-7B** | **0.8000** | **0.8000** | 0.4000 | **2.4667** | **0.8000** | **0.1600** |
 | **Hulu-Med-7B** | 0.6000 | 0.7333 | **0.6000** | 2.0000 | 0.6000 | 0.1200 |
+| **Qwen3-VL-2B-Cataract-SFT** | 0.3333 | 0.4000 | 0.4000 | 1.3333 | 0.3333 | 0.0667 |
 | **Hulu-Med-4B** | 0.2000 | 0.2667 | 0.1333 | 1.6667 | 0.2000 | 0.0400 |
 | **Qwen3-VL-4B-Instruct** | 0.2000 | 0.1333 | 0.2667 | 1.0667 | 0.1333 | 0.0267 |
 | **Qwen3-VL-2B-Thinking** | 0.0667 | 0.1333 | 0.2000 | 0.8000 | 0.1333 | 0.0267 |
@@ -149,17 +152,22 @@ Complete surgeries (5–25 minutes) require generating a comprehensive chronolog
 
 ## 4. Key Academic Findings & Discussion
 
-1. **Medical Specialization Dominates Long-Horizon Procedural Flow**:
-   - **Lingshu-7B** and **Hulu-Med-7B** lead full-video procedural narration (**0.8000** and **0.6000 / 5** overall), demonstrating that domain pretraining on surgical video helps maintain phase progression and chronological coherence across uncut recordings.
-   - Generalist models (Qwen3-VL 2B/4B) struggle with full-procedure context, often producing repetitive descriptions or hallucinating phase transitions, resulting in low narrative flow and coverage scores ($0.1333 / 5$).
+1. **Targeted Surgical SFT Delivers State-of-the-Art Clip Understanding**:
+   - **Qwen3-VL-2B-Cataract-SFT** achieves **0.5376** overall clip accuracy, outperforming the previous top model (**Hulu-Med-4B** at **0.4376**) by an absolute **+10.00%** and the base **Qwen3-VL-2B-Instruct** (**0.3709**) by **+16.67%**.
+   - This leap is driven by surgical multiple-choice precision (**0.8354** MCQ macro vs. 0.6502 for Hulu-Med-4B), with unprecedented gains on **Step Identification** (**0.7778** vs. 0.4630, a **+31.48%** absolute jump) and **Instrument Identification** (**0.8395** vs. 0.6852, **+15.43%**).
+   - These results demonstrate that lightweight 2B foundation backbones fine-tuned directly on cataract-specific multimodal tuples can drastically outperform larger 4B–7B medical generalists on discrete domain recognition.
 
-2. **Visual Description Quality & Reasoning Trade-offs**:
-   - **Qwen3-VL-4B-Instruct** (**0.3276**) and **Qwen3-VL-2B-Thinking** (**0.3044**) achieve top performance on short-clip visual descriptions, capturing fine intraocular anatomical detail and tool visibility.
-   - Test-time thinking improves clip-level precision (**0.4338** for Qwen3-VL-2B-Thinking vs. **0.3709** for Instruct), particularly on Instrument Identification (**0.6852** vs. **0.5432**) and Visual Observation (**0.8333** vs. **0.6790**).
+2. **Procedural Narration Across Granularities**:
+   - **Lingshu-7B** (**0.8000 / 5**) and **Hulu-Med-7B** (**0.6000 / 5**) maintain their lead on uncut full-video procedural narration, benefiting from broader pretraining contexts that preserve long-range narrative continuity and chronological step flow.
+   - However, **Qwen3-VL-2B-Cataract-SFT** achieves **0.3333 / 5** (normalized 0.0667), making it the highest-performing model under 7B on procedural narration—surpassing Hulu-Med-4B (0.2000) and achieving 2.5× the score of base Qwen3-VL 2B/4B instruct models (0.1333) with doubled chronological accuracy (0.4000 vs. 0.2000).
 
-3. **Temporal Grounding Remains the Critical Frontier**:
-   - All models exhibit significant gaps on continuous temporal tasks: **Temporal Localization** (average: 0.233) and **Boundary Detection** (average: 0.164) remain far lower than categorical **Visual Observation** (average: 0.777).
-   - Video sampling density and continuous timestamp regression remain primary targets for fine-tuning future surgical foundation models.
+3. **Visual Description Quality & Reasoning Trade-offs**:
+   - **Qwen3-VL-4B-Instruct** (**0.3276**), **Qwen3-VL-2B-Thinking** (**0.3044**), and **Qwen3-VL-2B-Cataract-SFT** (**0.2935**) form the top tier on short-clip visual descriptions, capturing fine intraocular anatomical detail and tool visibility.
+   - Test-time reasoning in Qwen3-VL-2B-Thinking provides strong clip-level gains over the base instruct model (**0.4338** vs. **0.3709**), but targeted domain SFT achieves a substantially higher clip performance ceiling (**0.5376**) without test-time compute overhead.
+
+4. **Temporal Grounding Remains the Critical Frontier**:
+   - Despite SFT's massive recognition gains, continuous temporal tasks remain challenging across all models: **Temporal Localization** (cohort average: 0.232) and **Boundary Detection** (cohort average: 0.176) lag far behind static recognition like **Visual Observation** (cohort average: 0.793).
+   - SFT yields moderate gains in boundary detection (0.2457 vs. 0.2170 base) and temporal localization (0.2237 vs. 0.1161 base), but domain regression on continuous timestamp tokens remains the primary target for next-generation surgical video foundation models.
 
 ---
 
