@@ -1,0 +1,40 @@
+{
+    "model_id": "Qwen/qwen3_vl_2b_cataract_sft_stage2",
+    "tag": "qwen3vl_qwen3_vl_2b_cataract_sft_stage2",
+    "total_scored": 989,
+    "overall_normalised_accuracy": 0.5421,
+    "per_type": {
+        "instrument_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.858
+        },
+        "step_identification": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.7346
+        },
+        "visual_description": {
+            "n_samples": 293,
+            "avg_normalised_score": 0.3133
+        },
+        "visual_observation": {
+            "n_samples": 162,
+            "avg_normalised_score": 0.8951
+        },
+        "contextual_phase_recognition": {
+            "n_samples": 60,
+            "avg_normalised_score": 0.1111
+        },
+        "boundary_detection": {
+            "n_samples": 49,
+            "avg_normalised_score": 0.2488
+        },
+        "timestamp_to_phase": {
+            "n_samples": 47,
+            "avg_normalised_score": 0.2097
+        },
+        "temporal_localization": {
+            "n_samples": 54,
+            "avg_normalised_score": 0.2345
+        }
+    }
+}
