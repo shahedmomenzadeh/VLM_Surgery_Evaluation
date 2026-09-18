@@ -111,6 +111,8 @@ def parse_args():
                         help="Attention backend implementation.")
     parser.add_argument("--load-in-4bit", action="store_true", default=False,
                         help="Load model in 4-bit NF4 format.")
+    parser.add_argument("--no-4bit", dest="load_in_4bit", action="store_false",
+                        help="Disable 4-bit quantization loading.")
     parser.add_argument("--load-in-8bit", action="store_true", default=False,
                         help="Load model in 8-bit format.")
     parser.add_argument("--gpu-memory-budget", type=str, default=None,
