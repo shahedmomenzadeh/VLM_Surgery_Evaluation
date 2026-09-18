@@ -21,6 +21,7 @@ env/
 # results/
 results_old/
 results/archive/
+timestamped_cache/
 
 # Dataset files
 dataset/
