@@ -183,9 +183,16 @@ for tag in "${!unique_tags[@]}"; do
     fi
 
     # Determine model family and model ID
-    if [[ "$tag" == hulumed_* ]]; then
+    # For timestamped runs (*_ts*), strip the _ts marker for ID inference only;
+    # file paths below still use the full original $tag.
+    tag_for_id="${tag%_ts}"
+    is_ts=0
+    if [[ "$tag" == *_ts* ]]; then
+        is_ts=1
+    fi
+    if [[ "$tag_for_id" == hulumed_* ]]; then
         model_family="hulumed"
-        clean_name="${tag#hulumed_}"
+        clean_name="${tag_for_id#hulumed_}"
         if [[ "$clean_name" == "hulu_med_7b" ]]; then
             model_id="ZJU-AI4H/Hulu-Med-7B"
         elif [[ "$clean_name" == "hulu_med_4b" ]]; then
@@ -193,9 +200,9 @@ for tag in "${!unique_tags[@]}"; do
         else
             model_id="hulumed/$clean_name"
         fi
-    elif [[ "$tag" == qwen3vl_* ]]; then
+    elif [[ "$tag_for_id" == qwen3vl_* ]]; then
         model_family="qwen3vl"
-        clean_name="${tag#qwen3vl_}"
+        clean_name="${tag_for_id#qwen3vl_}"
         if [[ "$clean_name" == "qwen3_vl_2b_instruct" ]]; then
             model_id="Qwen/Qwen3-VL-2B-Instruct"
         elif [[ "$clean_name" == "qwen3_vl_2b_thinking" ]]; then
@@ -211,10 +218,10 @@ for tag in "${!unique_tags[@]}"; do
         else
             model_id="Qwen/$clean_name"
         fi
-    elif [[ "$tag" == lingshu_* ]]; then
+    elif [[ "$tag_for_id" == lingshu_* ]]; then
         model_family="lingshu"
         model_id="lingshu-medical-mllm/Lingshu-7B"
-    elif [[ "$tag" == mage_vl_* ]]; then
+    elif [[ "$tag_for_id" == mage_vl_* ]]; then
         model_family="mage_vl"
         model_id="microsoft/Mage-VL"
     else
@@ -222,10 +229,19 @@ for tag in "${!unique_tags[@]}"; do
         continue
     fi
 
-    # Check if both clip and full video levels are complete
-    if [ "$clip_count" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_count" -ge "$EXPECTED_FULL_COUNT" ]; then
+    # Completeness check: timestamped runs (*_ts*) are full-video-only,
+    # so require only Full >= 15. Standard runs require both levels.
+    if [ "$is_ts" -eq 1 ]; then
+        if [ "$full_count" -ge "$EXPECTED_FULL_COUNT" ]; then
+            log "  [READY] $tag ($model_family | $model_id) -> Full-only TS run: Full: $full_count/$EXPECTED_FULL_COUNT (clip not required)"
+            FINISHED_MODELS+=("$tag|$model_family|$model_id|full")
+        else
+            warn "  [SKIP INCOMPLETE] $tag -> Full: $full_count/$EXPECTED_FULL_COUNT (full-only TS run, 15 required)"
+            INCOMPLETE_MODELS+=("$tag (Full: $full_count/$EXPECTED_FULL_COUNT, TS full-only)")
+        fi
+    elif [ "$clip_count" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_count" -ge "$EXPECTED_FULL_COUNT" ]; then
         log "  [READY] $tag ($model_family | $model_id) -> Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT"
-        FINISHED_MODELS+=("$tag|$model_family|$model_id")
+        FINISHED_MODELS+=("$tag|$model_family|$model_id|both")
     else
         warn "  [SKIP INCOMPLETE] $tag -> Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT (both levels required)"
         INCOMPLETE_MODELS+=("$tag (Clip: $clip_count/$EXPECTED_CLIP_COUNT, Full: $full_count/$EXPECTED_FULL_COUNT)")
@@ -252,6 +268,7 @@ run_model_evaluation() {
     local tag="$1"
     local family="$2"
     local id="$3"
+    local data_level="${4:-both}"
     local log_file="$OUTPUT_DIR/judge_${tag}.log"
 
     # Ensure the output dir + log file are usable before launching.
@@ -274,7 +291,7 @@ run_model_evaluation() {
         --mode judge \
         --model-family "$family" \
         --model-id "$id" \
-        --data-level both \
+        --data-level "$data_level" \
         --output-dir "$OUTPUT_DIR" \
         --judge-base-url "$JUDGE_BASE_URL" \
         --judge-model "$JUDGE_MODEL" \
@@ -292,7 +309,8 @@ failed=0
 declare -A PID_TAG=()
 
 for item in "${FINISHED_MODELS[@]}"; do
-    IFS="|" read -r tag model_family model_id <<< "$item"
+    IFS="|" read -r tag model_family model_id data_level <<< "$item"
+    data_level="${data_level:-both}"
     
     # Throttle active background jobs to NUM_WORKERS
     if [ "$(jobs -rp | wc -l)" -ge "$NUM_WORKERS" ]; then
@@ -302,10 +320,10 @@ for item in "${FINISHED_MODELS[@]}"; do
         sleep 2
     done
 
-    run_model_evaluation "$tag" "$model_family" "$model_id" &
+    run_model_evaluation "$tag" "$model_family" "$model_id" "$data_level" &
     PID_TAG[$!]="$tag"
     pids+=($!)
-    log "[Launched] $tag ($model_family | $model_id) -> log: judge_${tag}.log"
+    log "[Launched] $tag ($model_family | $model_id | $data_level) -> log: judge_${tag}.log"
 done
 
 # ── 5. LIVE PROGRESS MONITOR ───────────────────────────────────────────────
@@ -353,7 +371,7 @@ if [ "$failed" -eq 0 ]; then
 else
     warn "$failed model evaluation worker(s) encountered issues. Check logs in $OUTPUT_DIR."
 fi
-log "Score status per model (expected clip=989, full=15):"
+log "Score status per model (expected clip=989, full=15; TS runs full-only):"
 for tag in "${!unique_tags[@]}"; do
     clip_scores=0; full_scores=0
     if [ -f "$OUTPUT_DIR/${tag}_clip_scores.jsonl" ]; then
@@ -362,7 +380,13 @@ for tag in "${!unique_tags[@]}"; do
     if [ -f "$OUTPUT_DIR/${tag}_full_scores.jsonl" ]; then
         full_scores=$(wc -l < "$OUTPUT_DIR/${tag}_full_scores.jsonl" 2>/dev/null || echo 0)
     fi
-    if [ "$clip_scores" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_scores" -ge "$EXPECTED_FULL_COUNT" ]; then
+    if [[ "$tag" == *_ts* ]]; then
+        if [ "$full_scores" -ge "$EXPECTED_FULL_COUNT" ]; then
+            log "  [DONE]   $tag: full_scores=$full_scores/$EXPECTED_FULL_COUNT (TS full-only)"
+        else
+            warn "  [PENDING] $tag: full_scores=$full_scores/$EXPECTED_FULL_COUNT (TS full-only)"
+        fi
+    elif [ "$clip_scores" -ge "$EXPECTED_CLIP_COUNT" ] && [ "$full_scores" -ge "$EXPECTED_FULL_COUNT" ]; then
         log "  [DONE]   $tag: clip_scores=$clip_scores/$EXPECTED_CLIP_COUNT  full_scores=$full_scores/$EXPECTED_FULL_COUNT"
     else
         warn "  [PENDING] $tag: clip_scores=$clip_scores/$EXPECTED_CLIP_COUNT  full_scores=$full_scores/$EXPECTED_FULL_COUNT"
