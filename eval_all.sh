@@ -215,6 +215,8 @@ for tag in "${!unique_tags[@]}"; do
             model_id="Qwen/Qwen3-VL-8B-Instruct"
         elif [[ "$clean_name" == "qwen3_vl_8b_thinking" ]]; then
             model_id="Qwen/Qwen3-VL-8B-Thinking"
+        elif [[ "$clean_name" == shahedm2001_* ]]; then
+            model_id="shahedm2001/${clean_name#shahedm2001_}"
         else
             model_id="Qwen/$clean_name"
         fi
@@ -291,6 +293,7 @@ run_model_evaluation() {
         --mode judge \
         --model-family "$family" \
         --model-id "$id" \
+        --tag "$tag" \
         --data-level "$data_level" \
         --output-dir "$OUTPUT_DIR" \
         --judge-base-url "$JUDGE_BASE_URL" \
